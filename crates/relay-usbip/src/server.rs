@@ -92,6 +92,21 @@ impl Server {
         self.addr
     }
 
+    /// Routes this device's playback audio into a new pipe writer.
+    pub fn replace_playback(&self, index: usize, w: PipeWriter) {
+        if let Some(d) = self.devices.get(index) {
+            *d.playback.lock() = w;
+        }
+    }
+
+    /// Feeds this device's microphone from a new pipe reader.
+    pub fn replace_capture(&self, index: usize, r: PipeReader) {
+        if let Some(d) = self.devices.get(index) {
+            *d.capture.lock() = r;
+            d.flush_capture.store(true, Ordering::Relaxed);
+        }
+    }
+
     pub fn busids(&self) -> Vec<String> {
         self.devices.iter().map(|d| d.busid.clone()).collect()
     }

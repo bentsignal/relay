@@ -58,6 +58,20 @@ impl VirtualAudio {
         Ok((Self { server, client: attach::find_client(), port, attached: Vec::new() }, endpoints))
     }
 
+    /// A fresh reader of what apps play to device `index` (replaces any previous reader).
+    pub fn connect_playback(&self, index: usize) -> PipeReader {
+        let (w, r) = pipe(uac2::RATE, uac2::RATE as usize / 2);
+        self.server.replace_playback(index, w);
+        r
+    }
+
+    /// A fresh writer feeding device `index`'s microphone (replaces any previous writer).
+    pub fn connect_capture(&self, index: usize) -> PipeWriter {
+        let (w, r) = pipe(uac2::RATE, uac2::RATE as usize / 2);
+        self.server.replace_capture(index, r);
+        w
+    }
+
     pub fn client_found(&self) -> bool {
         self.client.is_some()
     }

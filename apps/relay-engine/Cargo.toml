@@ -1,0 +1,30 @@
+[package]
+name = "relay-engine"
+description = "Relay's headless audio/video engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "relay-engine"
+path = "src/main.rs"
+
+[dependencies]
+relay-proto = { workspace = true }
+relay-dsp = { workspace = true }
+relay-mixer = { workspace = true }
+relay-audio = { workspace = true }
+relay-ipc = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+directories = { workspace = true }
+crossbeam-channel = { workspace = true }
+parking_lot = { workspace = true }
+nnnoiseless = { version = "0.5", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+relay-usbip = { workspace = true }
