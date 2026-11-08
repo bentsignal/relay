@@ -1,0 +1,20 @@
+[package]
+name = "relay-app"
+description = "Relay's user interface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "relay"
+path = "src/main.rs"
+
+[dependencies]
+relay-proto = { workspace = true }
+relay-ipc = { workspace = true }
+relay-dsp = { workspace = true }
+gpui = { workspace = true }
+crossbeam-channel = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
