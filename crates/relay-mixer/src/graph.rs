@@ -102,10 +102,7 @@ impl EffectsRt {
     }
 
     fn reduction_db(&self) -> f32 {
-        self.gate
-            .reduction_db()
-            .max(self.comp.reduction_db())
-            .max(self.limiter.reduction_db())
+        self.gate.reduction_db().max(self.comp.reduction_db()).max(self.limiter.reduction_db())
     }
 }
 
@@ -162,13 +159,7 @@ pub struct BusRt {
 }
 
 impl BusRt {
-    pub fn new(
-        slot: usize,
-        sink: Box<dyn SinkPort>,
-        gain_db: f32,
-        mute: bool,
-        fx: EffectsRt,
-    ) -> Box<Self> {
+    pub fn new(slot: usize, sink: Box<dyn SinkPort>, gain_db: f32, mute: bool, fx: EffectsRt) -> Box<Self> {
         Box::new(Self {
             slot,
             sink,
@@ -258,13 +249,7 @@ impl MeterBank {
         let get = |i: usize| f32::from_bits(arr[base + i].load(Ordering::Relaxed));
         let peak_l = f32::from_bits(arr[base].swap(0, Ordering::Relaxed));
         let peak_r = f32::from_bits(arr[base + 1].swap(0, Ordering::Relaxed));
-        Level {
-            peak_l,
-            peak_r,
-            rms_l: get(2),
-            rms_r: get(3),
-            reduction_db: get(4),
-        }
+        Level { peak_l, peak_r, rms_l: get(2), rms_r: get(3), reduction_db: get(4) }
     }
 
     pub fn strip(&self, slot: usize) -> Level {
@@ -303,11 +288,7 @@ pub fn graph() -> (GraphHandle, Graph) {
     let (gp, gc) = rtrb::RingBuffer::new(4096);
     let meters = Arc::new(MeterBank::new());
     (
-        GraphHandle {
-            cmds: cp,
-            garbage: gc,
-            meters: meters.clone(),
-        },
+        GraphHandle { cmds: cp, garbage: gc, meters: meters.clone() },
         Graph {
             strips: (0..MAX_STRIPS).map(|_| None).collect(),
             buses: (0..MAX_BUSES).map(|_| None).collect(),
@@ -458,15 +439,9 @@ impl Graph {
             s.g_gain.apply(s.gain, &mut s.l, &mut s.r);
             // Meter before mute so a muted input still shows it's alive.
             s.meter.process(&s.l, &s.r);
-            MeterBank::publish(
-                &self.meters.strips,
-                s.slot,
-                &mut s.meter,
-                s.fx.reduction_db(),
-            );
+            MeterBank::publish(&self.meters.strips, s.slot, &mut s.meter, s.fx.reduction_db());
             let silent = s.mute && s.g_mute.current() == 0.0;
-            s.g_mute
-                .apply(if s.mute { 0.0 } else { 1.0 }, &mut s.l, &mut s.r);
+            s.g_mute.apply(if s.mute { 0.0 } else { 1.0 }, &mut s.l, &mut s.r);
             if s.routes == 0 || silent {
                 continue;
             }
@@ -486,15 +461,9 @@ impl Graph {
         for b in self.buses.iter_mut().flatten() {
             b.fx.process(&mut b.l, &mut b.r);
             b.g_gain.apply(b.gain, &mut b.l, &mut b.r);
-            b.g_mute
-                .apply(if b.mute { 0.0 } else { 1.0 }, &mut b.l, &mut b.r);
+            b.g_mute.apply(if b.mute { 0.0 } else { 1.0 }, &mut b.l, &mut b.r);
             b.meter.process(&b.l, &b.r);
-            MeterBank::publish(
-                &self.meters.buses,
-                b.slot,
-                &mut b.meter,
-                b.fx.reduction_db(),
-            );
+            MeterBank::publish(&self.meters.buses, b.slot, &mut b.meter, b.fx.reduction_db());
             b.sink.write(&b.l, &b.r);
         }
     }
@@ -526,14 +495,8 @@ mod tests {
         let (mut h, mut g) = graph();
         let fx = Effects::default();
         let out = Arc::new(Mutex::new(Vec::new()));
-        h.send(MixerCmd::AddBus(BusRt::new(
-            3,
-            Box::new(Capture(out.clone())),
-            0.0,
-            false,
-            EffectsRt::new(&fx, None),
-        )))
-        .ok();
+        h.send(MixerCmd::AddBus(BusRt::new(3, Box::new(Capture(out.clone())), 0.0, false, EffectsRt::new(&fx, None))))
+            .ok();
         h.send(MixerCmd::AddStrip(StripRt::new(
             0,
             Box::new(Const(0.25)),
@@ -552,15 +515,8 @@ mod tests {
             EffectsRt::new(&fx, None),
         )))
         .ok();
-        h.send(MixerCmd::AddStrip(StripRt::new(
-            2,
-            Box::new(Const(1.0)),
-            0.0,
-            false,
-            0,
-            EffectsRt::new(&fx, None),
-        )))
-        .ok();
+        h.send(MixerCmd::AddStrip(StripRt::new(2, Box::new(Const(1.0)), 0.0, false, 0, EffectsRt::new(&fx, None))))
+            .ok();
         g.process();
         g.process();
         let v = out.lock().unwrap();
@@ -575,35 +531,16 @@ mod tests {
         let (mut h, mut g) = graph();
         let fx = Effects::default();
         let out = Arc::new(Mutex::new(Vec::new()));
-        h.send(MixerCmd::AddBus(BusRt::new(
-            0,
-            Box::new(Capture(out.clone())),
-            0.0,
-            false,
-            EffectsRt::new(&fx, None),
-        )))
-        .ok();
-        h.send(MixerCmd::AddStrip(StripRt::new(
-            0,
-            Box::new(Const(0.5)),
-            0.0,
-            false,
-            1,
-            EffectsRt::new(&fx, None),
-        )))
-        .ok();
+        h.send(MixerCmd::AddBus(BusRt::new(0, Box::new(Capture(out.clone())), 0.0, false, EffectsRt::new(&fx, None))))
+            .ok();
+        h.send(MixerCmd::AddStrip(StripRt::new(0, Box::new(Const(0.5)), 0.0, false, 1, EffectsRt::new(&fx, None))))
+            .ok();
         g.process();
         h.send(MixerCmd::SetStripMute(0, true)).ok();
         g.process();
         g.process();
         let v = out.lock().unwrap();
-        assert!(
-            v[BLOCK] > 0.49 && v[2 * BLOCK - 1].abs() < 0.01,
-            "{} {} {}",
-            v[0],
-            v[BLOCK],
-            v[2 * BLOCK - 1]
-        );
+        assert!(v[BLOCK] > 0.49 && v[2 * BLOCK - 1].abs() < 0.01, "{} {} {}", v[0], v[BLOCK], v[2 * BLOCK - 1]);
         assert_eq!(v[2 * BLOCK + 10], 0.0);
     }
 }

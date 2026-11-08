@@ -47,32 +47,15 @@ impl VirtualAudio {
             let (play_w, play_r) = pipe(uac2::RATE, uac2::RATE as usize / 2);
             let (cap_w, cap_r) = pipe(uac2::RATE, uac2::RATE as usize / 2);
             ends.push((id.product.clone(), play_r, cap_w));
-            specs.push(server::DeviceSpec {
-                identity: id,
-                playback: play_w,
-                capture: cap_r,
-            });
+            specs.push(server::DeviceSpec { identity: id, playback: play_w, capture: cap_r });
         }
         let (server, stats) = server::Server::start(port, specs)?;
         let endpoints = ends
             .into_iter()
             .zip(stats)
-            .map(|((name, playback, capture), stats)| Endpoints {
-                name,
-                playback,
-                capture,
-                stats,
-            })
+            .map(|((name, playback, capture), stats)| Endpoints { name, playback, capture, stats })
             .collect();
-        Ok((
-            Self {
-                server,
-                client: attach::find_client(),
-                port,
-                attached: Vec::new(),
-            },
-            endpoints,
-        ))
+        Ok((Self { server, client: attach::find_client(), port, attached: Vec::new() }, endpoints))
     }
 
     pub fn client_found(&self) -> bool {
@@ -82,9 +65,7 @@ impl VirtualAudio {
     /// Plugs every device in. Leaves stale attachments from a previous run alone
     /// (they disappear when their TCP session died).
     pub fn attach_all(&mut self) -> Result<()> {
-        let Some(client) = self.client.clone() else {
-            bail!("usbip client not found")
-        };
+        let Some(client) = self.client.clone() else { bail!("usbip client not found") };
         for stale in attach::our_ports(&client, self.port) {
             let _ = attach::detach(&client, stale);
         }

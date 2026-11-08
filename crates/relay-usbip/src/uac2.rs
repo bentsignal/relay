@@ -77,25 +77,7 @@ impl Descriptors {
         c.extend_from_slice(&[8, 0x24, 0x0A, CLOCK_ID, 0x01, 0x05, 0, 0]); // internal fixed clock
         let it = |id: u8, ttype: u16| {
             let t = ttype.to_le_bytes();
-            [
-                17,
-                0x24,
-                0x02,
-                id,
-                t[0],
-                t[1],
-                0,
-                CLOCK_ID,
-                CHANNELS as u8,
-                3,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ]
+            [17, 0x24, 0x02, id, t[0], t[1], 0, CLOCK_ID, CHANNELS as u8, 3, 0, 0, 0, 0, 0, 0, 0]
         };
         let ot = |id: u8, ttype: u16, src: u8| {
             let t = ttype.to_le_bytes();
@@ -108,66 +90,26 @@ impl Descriptors {
         let ac_len = (c.len() - ac_start) as u16;
         c[ac_start + 6..ac_start + 8].copy_from_slice(&ac_len.to_le_bytes());
 
-        let streaming =
-            |c: &mut Vec<u8>, iface: u8, terminal: u8, ep_addr: u8, attrs: u8, max: u16| {
-                c.extend_from_slice(&[9, 4, iface, 0, 0, 1, 2, 0x20, 0]);
-                c.extend_from_slice(&[9, 4, iface, 1, 1, 1, 2, 0x20, 0]);
-                c.extend_from_slice(&[
-                    16,
-                    0x24,
-                    0x01,
-                    terminal,
-                    0,
-                    0x01,
-                    0x01,
-                    0,
-                    0,
-                    0,
-                    CHANNELS as u8,
-                    3,
-                    0,
-                    0,
-                    0,
-                    0,
-                ]);
-                c.extend_from_slice(&[6, 0x24, 0x02, 0x01, SUBSLOT as u8, (SUBSLOT * 8) as u8]);
-                let m = max.to_le_bytes();
-                c.extend_from_slice(&[7, 5, ep_addr, attrs, m[0], m[1], 1]);
-                c.extend_from_slice(&[8, 0x25, 0x01, 0, 0, 0, 0, 0]);
-            };
+        let streaming = |c: &mut Vec<u8>, iface: u8, terminal: u8, ep_addr: u8, attrs: u8, max: u16| {
+            c.extend_from_slice(&[9, 4, iface, 0, 0, 1, 2, 0x20, 0]);
+            c.extend_from_slice(&[9, 4, iface, 1, 1, 1, 2, 0x20, 0]);
+            c.extend_from_slice(&[16, 0x24, 0x01, terminal, 0, 0x01, 0x01, 0, 0, 0, CHANNELS as u8, 3, 0, 0, 0, 0]);
+            c.extend_from_slice(&[6, 0x24, 0x02, 0x01, SUBSLOT as u8, (SUBSLOT * 8) as u8]);
+            let m = max.to_le_bytes();
+            c.extend_from_slice(&[7, 5, ep_addr, attrs, m[0], m[1], 1]);
+            c.extend_from_slice(&[8, 0x25, 0x01, 0, 0, 0, 0, 0]);
+        };
         // Interface 1: playback, isochronous adaptive OUT.
-        streaming(
-            &mut c,
-            IF_PLAYBACK,
-            IT_USB,
-            EP_OUT as u8,
-            0x09,
-            OUT_MAX_PACKET,
-        );
+        streaming(&mut c, IF_PLAYBACK, IT_USB, EP_OUT as u8, 0x09, OUT_MAX_PACKET);
         // Interface 2: capture, isochronous asynchronous IN.
-        streaming(
-            &mut c,
-            IF_CAPTURE,
-            OT_USB,
-            0x80 | EP_IN as u8,
-            0x05,
-            IN_MAX_PACKET,
-        );
+        streaming(&mut c, IF_CAPTURE, OT_USB, 0x80 | EP_IN as u8, 0x05, IN_MAX_PACKET);
 
         let total = c.len() as u16;
         c[2..4].copy_from_slice(&total.to_le_bytes());
 
-        let strings = vec![
-            vec![4, 3, 0x09, 0x04],
-            string_desc("Relay"),
-            string_desc(&id.product),
-            string_desc(&id.serial),
-        ];
-        Self {
-            device,
-            config: c,
-            strings,
-        }
+        let strings =
+            vec![vec![4, 3, 0x09, 0x04], string_desc("Relay"), string_desc(&id.product), string_desc(&id.serial)];
+        Self { device, config: c, strings }
     }
 }
 
@@ -287,7 +229,7 @@ pub fn control(desc: &Descriptors, st: &mut UsbState, s: Setup, _out: &[u8]) -> 
                     trunc(v, s.length)
                 }
                 (true, 0x01, 0x02) => trunc(vec![1], s.length), // CLOCK_VALID
-                (false, 0x01, 0x01) => ControlResult::Ack, // SET CUR SAM_FREQ (only 48k exists)
+                (false, 0x01, 0x01) => ControlResult::Ack,      // SET CUR SAM_FREQ (only 48k exists)
                 _ => ControlResult::Stall,
             };
         }
@@ -314,11 +256,7 @@ mod tests {
 
     #[test]
     fn descriptor_tree_is_well_formed() {
-        let d = Descriptors::new(&Identity {
-            product: "Relay".into(),
-            serial: "R1".into(),
-            product_id: 1,
-        });
+        let d = Descriptors::new(&Identity { product: "Relay".into(), serial: "R1".into(), product_id: 1 });
         assert_eq!(d.device.len(), 18);
         let total = u16::from_le_bytes([d.config[2], d.config[3]]) as usize;
         assert_eq!(total, d.config.len());
@@ -331,19 +269,9 @@ mod tests {
 
     #[test]
     fn clock_range_request() {
-        let d = Descriptors::new(&Identity {
-            product: "Relay".into(),
-            serial: "R1".into(),
-            product_id: 1,
-        });
+        let d = Descriptors::new(&Identity { product: "Relay".into(), serial: "R1".into(), product_id: 1 });
         let mut st = UsbState::default();
-        let s = Setup {
-            request_type: 0xA1,
-            request: 2,
-            value: 0x0100,
-            index: (CLOCK_ID as u16) << 8,
-            length: 14,
-        };
+        let s = Setup { request_type: 0xA1, request: 2, value: 0x0100, index: (CLOCK_ID as u16) << 8, length: 14 };
         match control(&d, &mut st, s, &[]) {
             ControlResult::Data(v) => assert_eq!(v.len(), 14),
             _ => panic!("expected data"),

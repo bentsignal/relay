@@ -32,10 +32,7 @@ pub fn find_client() -> Option<PathBuf> {
             candidates.push(up.join("vendor").join("usbip"));
         }
     }
-    candidates
-        .into_iter()
-        .map(|d| d.join("usbip.exe"))
-        .find(|p| p.is_file())
+    candidates.into_iter().map(|d| d.join("usbip.exe")).find(|p| p.is_file())
 }
 
 /// True if the usbip-win2 virtual host controller driver is installed and running.
@@ -48,10 +45,7 @@ pub fn driver_running() -> bool {
 
 /// True if the driver service exists (possibly stopped).
 pub fn driver_installed() -> bool {
-    quiet(Command::new("sc").args(["query", "usbip2_ude"]))
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    quiet(Command::new("sc").args(["query", "usbip2_ude"])).output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 /// Attaches one device; returns the hub port it was plugged into.
@@ -84,10 +78,7 @@ pub fn attach(client: &Path, tcp_port: u16, busid: &str) -> Result<u8> {
 pub fn detach(client: &Path, port: u8) -> Result<()> {
     let out = quiet(Command::new(client).args(["detach", "--port", &port.to_string()])).output()?;
     if !out.status.success() {
-        bail!(
-            "usbip detach failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        bail!("usbip detach failed: {}", String::from_utf8_lossy(&out.stderr).trim());
     }
     Ok(())
 }
@@ -104,10 +95,7 @@ pub fn our_ports(client: &Path, tcp_port: u16) -> Vec<u8> {
     for line in text.lines() {
         let l = line.trim();
         if let Some(rest) = l.strip_prefix("Port ") {
-            current = rest
-                .split(|c: char| !c.is_ascii_digit())
-                .next()
-                .and_then(|n| n.parse().ok());
+            current = rest.split(|c: char| !c.is_ascii_digit()).next().and_then(|n| n.parse().ok());
         }
         if l.contains(&needle)
             && let Some(p) = current

@@ -3,12 +3,10 @@
 use anyhow::{Result, anyhow};
 use std::ffi::c_void;
 use windows::Win32::Media::Audio::{
-    DEVICE_STATE_ACTIVE, ERole, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eCommunications,
-    eConsole, eMultimedia, eRender,
+    DEVICE_STATE_ACTIVE, ERole, IMMDeviceEnumerator, MMDeviceEnumerator, eCapture, eCommunications, eConsole,
+    eMultimedia, eRender,
 };
-use windows::Win32::System::Com::{
-    CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx,
-};
+use windows::Win32::System::Com::{CLSCTX_ALL, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 use windows::core::{GUID, HRESULT, IUnknown, Interface, PCWSTR};
 
 /// cpal's WASAPI device keys look like `wasapi:<endpoint id>`.
@@ -49,9 +47,7 @@ pub fn endpoint_active(id: &str) -> bool {
     let Ok(dev) = (unsafe { e.GetDevice(PCWSTR(wide.as_ptr())) }) else {
         return false;
     };
-    unsafe { dev.GetState() }
-        .map(|s| s == DEVICE_STATE_ACTIVE)
-        .unwrap_or(false)
+    unsafe { dev.GetState() }.map(|s| s == DEVICE_STATE_ACTIVE).unwrap_or(false)
 }
 
 // The undocumented-but-stable IPolicyConfig interface used by the Sound

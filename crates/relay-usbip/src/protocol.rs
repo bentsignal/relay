@@ -95,10 +95,7 @@ impl Submit {
         let mut setup = [0u8; 8];
         r.read_exact(&mut setup)?;
         if length > 4 * 1024 * 1024 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "transfer too large",
-            ));
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "transfer too large"));
         }
         let mut data = Vec::new();
         if header.direction == DIR_OUT && length > 0 {
@@ -108,10 +105,7 @@ impl Submit {
         let mut iso = Vec::new();
         if packets != NO_ISO && packets != 0 {
             if packets > 1024 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "too many iso packets",
-                ));
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "too many iso packets"));
             }
             iso.reserve(packets as usize);
             for _ in 0..packets {
@@ -123,17 +117,7 @@ impl Submit {
                 });
             }
         }
-        Ok(Self {
-            header,
-            flags,
-            length,
-            start_frame,
-            packets,
-            interval,
-            setup,
-            data,
-            iso,
-        })
+        Ok(Self { header, flags, length, start_frame, packets, interval, setup, data, iso })
     }
 }
 
@@ -151,10 +135,7 @@ pub fn ret_submit(
         out.extend_from_slice(&v.to_be_bytes());
     }
     let (n, errors) = match iso {
-        Some(i) => (
-            i.len() as u32,
-            i.iter().filter(|d| d.status != 0).count() as u32,
-        ),
+        Some(i) => (i.len() as u32, i.iter().filter(|d| d.status != 0).count() as u32),
         None => (NO_ISO, 0),
     };
     out.extend_from_slice(&status.to_be_bytes());

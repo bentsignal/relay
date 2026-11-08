@@ -53,11 +53,7 @@ impl Resampler {
                 let x = std::f64::consts::PI * cutoff * t;
                 let sinc = if x.abs() < 1e-9 { 1.0 } else { x.sin() / x };
                 let w_arg = t / HALF_TAPS as f64;
-                let w = if w_arg.abs() >= 1.0 {
-                    0.0
-                } else {
-                    bessel_i0(beta * (1.0 - w_arg * w_arg).sqrt()) / i0b
-                };
+                let w = if w_arg.abs() >= 1.0 { 0.0 } else { bessel_i0(beta * (1.0 - w_arg * w_arg).sqrt()) / i0b };
                 let h = cutoff * sinc * w;
                 *v = h as f32;
                 sum += h;
@@ -66,14 +62,8 @@ impl Resampler {
                 *v = (*v as f64 / sum) as f32;
             }
         }
-        let mut r = Self {
-            table,
-            buf: [vec![0.0; CAPACITY], vec![0.0; CAPACITY]],
-            len: 0,
-            pos: 0.0,
-            nominal,
-            ratio: nominal,
-        };
+        let mut r =
+            Self { table, buf: [vec![0.0; CAPACITY], vec![0.0; CAPACITY]], len: 0, pos: 0.0, nominal, ratio: nominal };
         r.reset();
         r
     }
@@ -185,9 +175,7 @@ mod tests {
     use std::f64::consts::PI;
 
     fn tone(freq: f64, rate: f64, n: usize) -> Vec<f32> {
-        (0..n)
-            .map(|i| (2.0 * PI * freq * i as f64 / rate).sin() as f32 * 0.5)
-            .collect()
+        (0..n).map(|i| (2.0 * PI * freq * i as f64 / rate).sin() as f32 * 0.5).collect()
     }
 
     fn run(ratio: f64, input: &[f32]) -> Vec<f32> {
@@ -214,9 +202,7 @@ mod tests {
         let out = run(1.0, &input);
         // Output is delayed by the pre-roll; compare after settling.
         let off = 0;
-        let err: f32 = (2000..40000)
-            .map(|i| (out[i + off] - input[i]).abs())
-            .fold(0.0, f32::max);
+        let err: f32 = (2000..40000).map(|i| (out[i + off] - input[i]).abs()).fold(0.0, f32::max);
         assert!(err < 1e-3, "max error {err}");
     }
 

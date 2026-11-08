@@ -16,13 +16,7 @@ pub struct EqBand {
 
 impl Default for EqBand {
     fn default() -> Self {
-        Self {
-            enabled: true,
-            kind: FilterKind::Peak,
-            freq: 1000.0,
-            q: 1.0,
-            gain_db: 0.0,
-        }
+        Self { enabled: true, kind: FilterKind::Peak, freq: 1000.0, q: 1.0, gain_db: 0.0 }
     }
 }
 
@@ -34,42 +28,18 @@ impl EqBand {
     /// True when the band changes nothing and can be skipped.
     pub fn is_neutral(&self) -> bool {
         !self.enabled
-            || (matches!(
-                self.kind,
-                FilterKind::Peak | FilterKind::LowShelf | FilterKind::HighShelf
-            ) && self.gain_db.abs() < 0.01)
+            || (matches!(self.kind, FilterKind::Peak | FilterKind::LowShelf | FilterKind::HighShelf)
+                && self.gain_db.abs() < 0.01)
     }
 
     /// A sensible five-band starting layout.
     pub fn default_layout() -> Vec<EqBand> {
         vec![
-            EqBand {
-                enabled: false,
-                kind: FilterKind::HighPass,
-                freq: 80.0,
-                q: 0.707,
-                gain_db: 0.0,
-            },
-            EqBand {
-                kind: FilterKind::LowShelf,
-                freq: 120.0,
-                q: 0.707,
-                ..Default::default()
-            },
-            EqBand {
-                freq: 500.0,
-                ..Default::default()
-            },
-            EqBand {
-                freq: 3000.0,
-                ..Default::default()
-            },
-            EqBand {
-                kind: FilterKind::HighShelf,
-                freq: 8000.0,
-                q: 0.707,
-                ..Default::default()
-            },
+            EqBand { enabled: false, kind: FilterKind::HighPass, freq: 80.0, q: 0.707, gain_db: 0.0 },
+            EqBand { kind: FilterKind::LowShelf, freq: 120.0, q: 0.707, ..Default::default() },
+            EqBand { freq: 500.0, ..Default::default() },
+            EqBand { freq: 3000.0, ..Default::default() },
+            EqBand { kind: FilterKind::HighShelf, freq: 8000.0, q: 0.707, ..Default::default() },
         ]
     }
 }
@@ -130,10 +100,6 @@ impl Eq {
 
     /// Combined magnitude response, for drawing.
     pub fn response_db(bands: &[EqBand], freq: f32, sample_rate: f32) -> f32 {
-        bands
-            .iter()
-            .filter(|b| !b.is_neutral())
-            .map(|b| b.coeffs(sample_rate).magnitude_db(freq, sample_rate))
-            .sum()
+        bands.iter().filter(|b| !b.is_neutral()).map(|b| b.coeffs(sample_rate).magnitude_db(freq, sample_rate)).sum()
     }
 }

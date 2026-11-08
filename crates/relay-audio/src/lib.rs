@@ -19,8 +19,7 @@ pub const RELAY_DEVICE_TAG: &str = "Relay";
 
 pub fn is_relay_device(name: &str) -> bool {
     // Matches "Relay", "Speakers (Relay)", "Relay Mic", "Microphone (Relay Mic)"...
-    name.split(|c: char| !c.is_alphanumeric())
-        .any(|w| w == RELAY_DEVICE_TAG)
+    name.split(|c: char| !c.is_alphanumeric()).any(|w| w == RELAY_DEVICE_TAG)
 }
 
 fn host() -> cpal::Host {
@@ -29,16 +28,8 @@ fn host() -> cpal::Host {
 
 fn info(d: &cpal::Device, default_id: &Option<String>, input: bool) -> Option<DeviceInfo> {
     let key = d.id().ok()?.to_string();
-    let name = d
-        .description()
-        .ok()
-        .map(|d| d.name().to_string())
-        .unwrap_or_else(|| key.clone());
-    let cfg = if input {
-        d.default_input_config().ok()?
-    } else {
-        d.default_output_config().ok()?
-    };
+    let name = d.description().ok().map(|d| d.name().to_string()).unwrap_or_else(|| key.clone());
+    let cfg = if input { d.default_input_config().ok()? } else { d.default_output_config().ok()? };
     Some(DeviceInfo {
         is_default: default_id.as_deref() == Some(key.as_str()),
         is_relay: is_relay_device(&name),
@@ -52,14 +43,8 @@ fn info(d: &cpal::Device, default_id: &Option<String>, input: bool) -> Option<De
 /// Enumerates capture and playback devices.
 pub fn list_devices() -> Devices {
     let host = host();
-    let def_in = host
-        .default_input_device()
-        .and_then(|d| d.id().ok())
-        .map(|i| i.to_string());
-    let def_out = host
-        .default_output_device()
-        .and_then(|d| d.id().ok())
-        .map(|i| i.to_string());
+    let def_in = host.default_input_device().and_then(|d| d.id().ok()).map(|i| i.to_string());
+    let def_out = host.default_output_device().and_then(|d| d.id().ok()).map(|i| i.to_string());
     let mut devices = Devices::default();
     if let Ok(list) = host.input_devices() {
         devices.inputs = list.filter_map(|d| info(&d, &def_in, true)).collect();
@@ -72,9 +57,7 @@ pub fn list_devices() -> Devices {
 
 fn find(key: &str) -> Result<cpal::Device> {
     let id = cpal::DeviceId::from_str(key).map_err(|e| anyhow!("bad device key {key}: {e}"))?;
-    host()
-        .device_by_id(&id)
-        .ok_or_else(|| anyhow!("device not found"))
+    host().device_by_id(&id).ok_or_else(|| anyhow!("device not found"))
 }
 
 /// A running device stream. Dropping it stops the stream.
@@ -116,11 +99,7 @@ fn to_stereo(data: &cpal::Data, channels: usize, out: &mut Vec<f32>) {
             let s = data.as_slice::<$t>().unwrap();
             for f in 0..frames {
                 let l = $f(s[f * channels]);
-                let r = if channels > 1 {
-                    $f(s[f * channels + 1])
-                } else {
-                    l
-                };
+                let r = if channels > 1 { $f(s[f * channels + 1]) } else { l };
                 out.push(l);
                 out.push(r);
             }
@@ -170,16 +149,9 @@ fn from_stereo(src: &[f32], data: &mut cpal::Data, channels: usize) {
 const PIPE_SECONDS: f32 = 0.5;
 
 fn open_capture(device: cpal::Device, loopback: bool) -> Result<(DeviceStream, PipeReader)> {
-    let name = device
-        .description()
-        .map(|d| d.name().to_string())
-        .unwrap_or_default();
-    let supported = if loopback {
-        device.default_output_config()
-    } else {
-        device.default_input_config()
-    }
-    .context("no usable format")?;
+    let name = device.description().map(|d| d.name().to_string()).unwrap_or_default();
+    let supported = if loopback { device.default_output_config() } else { device.default_input_config() }
+        .context("no usable format")?;
     let format = supported.sample_format();
     let config: StreamConfig = supported.config();
     let channels = config.channels as usize;
@@ -199,17 +171,7 @@ fn open_capture(device: cpal::Device, loopback: bool) -> Result<(DeviceStream, P
         None,
     )?;
     stream.play()?;
-    Ok((
-        DeviceStream {
-            _stream: stream,
-            name,
-            rate,
-            channels: config.channels,
-            pipe: shared,
-            failed,
-        },
-        reader,
-    ))
+    Ok((DeviceStream { _stream: stream, name, rate, channels: config.channels, pipe: shared, failed }, reader))
 }
 
 /// Opens a capture device (microphone, line in...).
@@ -225,10 +187,7 @@ pub fn open_loopback(key: &str) -> Result<(DeviceStream, PipeReader)> {
 /// Opens a playback device.
 pub fn open_output(key: &str) -> Result<(DeviceStream, PipeWriter)> {
     let device = find(key)?;
-    let name = device
-        .description()
-        .map(|d| d.name().to_string())
-        .unwrap_or_default();
+    let name = device.description().map(|d| d.name().to_string()).unwrap_or_default();
     let supported = device.default_output_config().context("no usable format")?;
     let format = supported.sample_format();
     let config: StreamConfig = supported.config();
@@ -251,15 +210,5 @@ pub fn open_output(key: &str) -> Result<(DeviceStream, PipeWriter)> {
         None,
     )?;
     stream.play()?;
-    Ok((
-        DeviceStream {
-            _stream: stream,
-            name,
-            rate,
-            channels: config.channels,
-            pipe: shared,
-            failed,
-        },
-        writer,
-    ))
+    Ok((DeviceStream { _stream: stream, name, rate, channels: config.channels, pipe: shared, failed }, writer))
 }

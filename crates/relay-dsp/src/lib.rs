@@ -22,20 +22,12 @@ pub const ENGINE_RATE: u32 = 48_000;
 
 #[inline]
 pub fn db_to_gain(db: f32) -> f32 {
-    if db <= -120.0 {
-        0.0
-    } else {
-        10f32.powf(db / 20.0)
-    }
+    if db <= -120.0 { 0.0 } else { 10f32.powf(db / 20.0) }
 }
 
 #[inline]
 pub fn gain_to_db(gain: f32) -> f32 {
-    if gain <= 1e-6 {
-        -120.0
-    } else {
-        20.0 * gain.log10()
-    }
+    if gain <= 1e-6 { -120.0 } else { 20.0 * gain.log10() }
 }
 
 /// Planar stereo buffer view used throughout the engine.

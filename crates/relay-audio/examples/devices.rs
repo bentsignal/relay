@@ -21,8 +21,5 @@ fn main() {
         );
     }
     #[cfg(windows)]
-    println!(
-        "default render endpoint: {:?}",
-        relay_audio::windows::default_endpoint(false)
-    );
+    println!("default render endpoint: {:?}", relay_audio::windows::default_endpoint(false));
 }

@@ -6,10 +6,7 @@ use std::time::{Duration, Instant};
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info").init();
-    let secs: u64 = std::env::args()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(30);
+    let secs: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(30);
     println!(
         "driver installed: {}, running: {}",
         relay_usbip::attach::driver_installed(),
@@ -17,11 +14,7 @@ fn main() -> anyhow::Result<()> {
     );
     let (mut va, mut eps) = VirtualAudio::start(
         DEFAULT_PORT,
-        vec![Identity {
-            product: "Relay Test".into(),
-            serial: "RELAY-TEST-1".into(),
-            product_id: 0x0001,
-        }],
+        vec![Identity { product: "Relay Test".into(), serial: "RELAY-TEST-1".into(), product_id: 0x0001 }],
     )?;
     println!("client found: {}", va.client_found());
     va.attach_all()?;
@@ -49,10 +42,7 @@ fn main() -> anyhow::Result<()> {
         }
         while ep.playback.fill_frames() >= 480 {
             ep.playback.read_planar(&mut out_l, &mut out_r);
-            peak = out_l
-                .iter()
-                .chain(out_r.iter())
-                .fold(peak, |m, s| m.max(s.abs()));
+            peak = out_l.iter().chain(out_r.iter()).fold(peak, |m, s| m.max(s.abs()));
         }
         if last_print.elapsed() > Duration::from_secs(1) {
             let s = &ep.stats;

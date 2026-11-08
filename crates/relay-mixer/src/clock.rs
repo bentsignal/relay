@@ -17,43 +17,36 @@ impl MixerThread {
     pub fn spawn(mut graph: Graph) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
-        let join = std::thread::Builder::new()
-            .name("relay-mixer".into())
-            .spawn(move || {
-                let _rt = platform::promote_realtime(BLOCK as u32);
-                let timer = platform::Timer::new();
-                let period = Duration::from_secs_f64(BLOCK as f64 / ENGINE_RATE as f64);
-                let mut epoch = Instant::now();
-                let mut cycle: u64 = 0;
-                let meters = graph.meters().clone();
-                while !stop2.load(Ordering::Relaxed) {
-                    let t0 = Instant::now();
-                    graph.process();
-                    let busy = t0.elapsed();
-                    meters.cycles.fetch_add(1, Ordering::Relaxed);
-                    meters
-                        .busy_ns
-                        .fetch_add(busy.as_nanos() as u64, Ordering::Relaxed);
-                    cycle += 1;
-                    let deadline = epoch + period.mul_f64(cycle as f64);
-                    let now = Instant::now();
-                    if now > deadline + period * 4 {
-                        // We fell far behind (system stall). Restart the cadence
-                        // rather than bursting; bridges absorb the gap.
-                        meters.late_cycles.fetch_add(1, Ordering::Relaxed);
-                        epoch = now;
-                        cycle = 0;
-                        continue;
-                    }
-                    if deadline > now {
-                        timer.sleep_until(deadline);
-                    }
+        let join = std::thread::Builder::new().name("relay-mixer".into()).spawn(move || {
+            let _rt = platform::promote_realtime(BLOCK as u32);
+            let timer = platform::Timer::new();
+            let period = Duration::from_secs_f64(BLOCK as f64 / ENGINE_RATE as f64);
+            let mut epoch = Instant::now();
+            let mut cycle: u64 = 0;
+            let meters = graph.meters().clone();
+            while !stop2.load(Ordering::Relaxed) {
+                let t0 = Instant::now();
+                graph.process();
+                let busy = t0.elapsed();
+                meters.cycles.fetch_add(1, Ordering::Relaxed);
+                meters.busy_ns.fetch_add(busy.as_nanos() as u64, Ordering::Relaxed);
+                cycle += 1;
+                let deadline = epoch + period.mul_f64(cycle as f64);
+                let now = Instant::now();
+                if now > deadline + period * 4 {
+                    // We fell far behind (system stall). Restart the cadence
+                    // rather than bursting; bridges absorb the gap.
+                    meters.late_cycles.fetch_add(1, Ordering::Relaxed);
+                    epoch = now;
+                    cycle = 0;
+                    continue;
                 }
-            })?;
-        Ok(Self {
-            stop,
-            join: Some(join),
-        })
+                if deadline > now {
+                    timer.sleep_until(deadline);
+                }
+            }
+        })?;
+        Ok(Self { stop, join: Some(join) })
     }
 
     pub fn stop(&mut self) {
@@ -75,8 +68,8 @@ pub mod platform {
     use std::time::Instant;
     use windows::Win32::Foundation::{CloseHandle, HANDLE};
     use windows::Win32::System::Threading::{
-        AvSetMmThreadCharacteristicsW, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-        CreateWaitableTimerExW, INFINITE, SetWaitableTimer, TIMER_ALL_ACCESS, WaitForSingleObject,
+        AvSetMmThreadCharacteristicsW, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, CreateWaitableTimerExW, INFINITE,
+        SetWaitableTimer, TIMER_ALL_ACCESS, WaitForSingleObject,
     };
     use windows::core::w;
 
@@ -85,9 +78,7 @@ pub mod platform {
     /// Registers the thread with MMCSS "Pro Audio" for low-latency scheduling.
     pub fn promote_realtime(_frames: u32) -> Option<Realtime> {
         let mut task = 0u32;
-        unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) }
-            .ok()
-            .map(|_| Realtime)
+        unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task) }.ok().map(|_| Realtime)
     }
 
     pub struct Timer(HANDLE);
@@ -96,12 +87,7 @@ pub mod platform {
     impl Timer {
         pub fn new() -> Self {
             let h = unsafe {
-                CreateWaitableTimerExW(
-                    None,
-                    None,
-                    CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
-                    TIMER_ALL_ACCESS.0,
-                )
+                CreateWaitableTimerExW(None, None, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS.0)
             }
             .unwrap_or_default();
             Self(h)
@@ -167,12 +153,7 @@ pub mod platform {
                 preemptible: 1,
             };
             unsafe extern "C" {
-                fn thread_policy_set(
-                    thread: u32,
-                    flavor: i32,
-                    info: *const TimeConstraint,
-                    count: u32,
-                ) -> i32;
+                fn thread_policy_set(thread: u32, flavor: i32, info: *const TimeConstraint, count: u32) -> i32;
                 fn pthread_mach_thread_np(thread: libc::pthread_t) -> u32;
             }
             const THREAD_TIME_CONSTRAINT_POLICY: i32 = 2;

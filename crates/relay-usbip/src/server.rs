@@ -59,10 +59,7 @@ pub struct Server {
 
 impl Server {
     /// Binds the loopback listener and starts serving. Devices are numbered from bus 1-1.
-    pub fn start(
-        port: u16,
-        specs: Vec<DeviceSpec>,
-    ) -> std::io::Result<(Arc<Self>, Vec<Arc<DeviceStats>>)> {
+    pub fn start(port: u16, specs: Vec<DeviceSpec>) -> std::io::Result<(Arc<Self>, Vec<Arc<DeviceStats>>)> {
         let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], port)))?;
         let addr = listener.local_addr()?;
         let mut stats = Vec::new();
@@ -85,15 +82,9 @@ impl Server {
                 })
             })
             .collect();
-        let server = Arc::new(Self {
-            addr,
-            devices,
-            stop: Arc::new(AtomicBool::new(false)),
-        });
+        let server = Arc::new(Self { addr, devices, stop: Arc::new(AtomicBool::new(false)) });
         let s2 = server.clone();
-        std::thread::Builder::new()
-            .name("usbip-accept".into())
-            .spawn(move || s2.accept_loop(listener))?;
+        std::thread::Builder::new().name("usbip-accept".into()).spawn(move || s2.accept_loop(listener))?;
         Ok((server, stats))
     }
 
@@ -118,31 +109,22 @@ impl Server {
             }
             let Ok(conn) = conn else { continue };
             // Loopback only, enforced by the bind address; double-check.
-            if !conn
-                .peer_addr()
-                .map(|a| a.ip().is_loopback())
-                .unwrap_or(false)
-            {
+            if !conn.peer_addr().map(|a| a.ip().is_loopback()).unwrap_or(false) {
                 continue;
             }
             let _ = conn.set_nodelay(true);
             let me = self.clone();
-            let _ = std::thread::Builder::new()
-                .name("usbip-conn".into())
-                .spawn(move || {
-                    if let Err(e) = me.handle(conn) {
-                        tracing::debug!("usbip connection ended: {e}");
-                    }
-                });
+            let _ = std::thread::Builder::new().name("usbip-conn".into()).spawn(move || {
+                if let Err(e) = me.handle(conn) {
+                    tracing::debug!("usbip connection ended: {e}");
+                }
+            });
         }
     }
 
     fn write_device(w: &mut impl Write, d: &Device) -> std::io::Result<()> {
         let dd = &d.desc.device;
-        w.write_all(&fixed_str::<256>(&format!(
-            "/sys/devices/platform/relay/{}",
-            d.busid
-        )))?;
+        w.write_all(&fixed_str::<256>(&format!("/sys/devices/platform/relay/{}", d.busid)))?;
         w.write_all(&fixed_str::<32>(&d.busid))?;
         w.write_all(&1u32.to_be_bytes())?;
         w.write_all(&d.number.to_be_bytes())?;
@@ -178,9 +160,7 @@ impl Server {
             OP_REQ_IMPORT => {
                 let mut busid = [0u8; 32];
                 r.read_exact(&mut busid)?;
-                let busid = String::from_utf8_lossy(&busid)
-                    .trim_end_matches('\0')
-                    .to_string();
+                let busid = String::from_utf8_lossy(&busid).trim_end_matches('\0').to_string();
                 let Some(dev) = self.devices.iter().find(|d| d.busid == busid).cloned() else {
                     return op_header(&mut w, OP_REP_IMPORT, 1);
                 };
@@ -239,12 +219,7 @@ struct Session {
 }
 
 impl Session {
-    fn run(
-        dev: Arc<Device>,
-        mut r: BufReader<TcpStream>,
-        w: TcpStream,
-        stop: Arc<AtomicBool>,
-    ) -> std::io::Result<()> {
+    fn run(dev: Arc<Device>, mut r: BufReader<TcpStream>, w: TcpStream, stop: Arc<AtomicBool>) -> std::io::Result<()> {
         let sess = Arc::new(Session {
             dev,
             writer: Mutex::new(w.try_clone()?),
@@ -252,9 +227,7 @@ impl Session {
             wake: Condvar::new(),
         });
         let s2 = sess.clone();
-        let sched = std::thread::Builder::new()
-            .name("usbip-iso".into())
-            .spawn(move || s2.scheduler())?;
+        let sched = std::thread::Builder::new().name("usbip-iso".into()).spawn(move || s2.scheduler())?;
         let result = sess.reader(&mut r, &stop);
         sess.queues.lock().closed = true;
         sess.wake.notify_all();
@@ -308,14 +281,8 @@ impl Session {
                 let mut usb = self.dev.usb.lock();
                 let prev_capture = usb.capture_alt;
                 let r = uac2::control(&self.dev.desc, &mut usb, setup, &sub.data);
-                self.dev
-                    .stats
-                    .playback_active
-                    .store(usb.playback_alt == 1, Ordering::Relaxed);
-                self.dev
-                    .stats
-                    .capture_active
-                    .store(usb.capture_alt == 1, Ordering::Relaxed);
+                self.dev.stats.playback_active.store(usb.playback_alt == 1, Ordering::Relaxed);
+                self.dev.stats.capture_active.store(usb.capture_alt == 1, Ordering::Relaxed);
                 if usb.capture_alt == 1 && prev_capture != 1 {
                     self.dev.flush_capture.store(true, Ordering::Relaxed);
                 }
@@ -324,11 +291,7 @@ impl Session {
             let reply = match result {
                 ControlResult::Data(d) => ret_submit(h.seq, ST_OK, d.len() as u32, 0, None, &d),
                 ControlResult::Ack => {
-                    let actual = if h.direction == DIR_OUT {
-                        sub.data.len() as u32
-                    } else {
-                        0
-                    };
+                    let actual = if h.direction == DIR_OUT { sub.data.len() as u32 } else { 0 };
                     ret_submit(h.seq, ST_OK, actual, 0, None, &[])
                 }
                 ControlResult::Stall => ret_submit(h.seq, ST_PIPE, 0, 0, None, &[]),
@@ -336,27 +299,12 @@ impl Session {
             return self.send(&reply);
         }
 
-        let valid = (h.ep == uac2::EP_OUT && h.direction == DIR_OUT)
-            || (h.ep == uac2::EP_IN && h.direction == DIR_IN);
+        let valid = (h.ep == uac2::EP_OUT && h.direction == DIR_OUT) || (h.ep == uac2::EP_IN && h.direction == DIR_IN);
         if !valid || !sub.is_iso() {
-            let iso = sub.is_iso().then(|| {
-                sub.iso
-                    .iter()
-                    .map(|d| IsoDesc {
-                        actual: 0,
-                        status: ST_PIPE,
-                        ..*d
-                    })
-                    .collect::<Vec<_>>()
-            });
-            return self.send(&ret_submit(
-                h.seq,
-                ST_PIPE,
-                0,
-                sub.start_frame,
-                iso.as_deref(),
-                &[],
-            ));
+            let iso = sub
+                .is_iso()
+                .then(|| sub.iso.iter().map(|d| IsoDesc { actual: 0, status: ST_PIPE, ..*d }).collect::<Vec<_>>());
+            return self.send(&ret_submit(h.seq, ST_PIPE, 0, sub.start_frame, iso.as_deref(), &[]));
         }
 
         let mut iso = sub.iso;
@@ -379,10 +327,7 @@ impl Session {
             }
             if !pcm.is_empty() {
                 self.dev.playback.lock().write_interleaved(&pcm);
-                self.dev
-                    .stats
-                    .out_packets
-                    .fetch_add(iso.len() as u64, Ordering::Relaxed);
+                self.dev.stats.out_packets.fetch_add(iso.len() as u64, Ordering::Relaxed);
             }
         }
 
@@ -397,14 +342,7 @@ impl Session {
         };
         let deadline = base + Duration::from_millis(iso.len() as u64);
         *slot = Some(deadline);
-        q.pending.push_back(Pending {
-            seq: h.seq,
-            ep: h.ep,
-            deadline,
-            start_frame: sub.start_frame,
-            iso,
-            out_len,
-        });
+        q.pending.push_back(Pending { seq: h.seq, ep: h.ep, deadline, start_frame: sub.start_frame, iso, out_len });
         drop(q);
         self.wake.notify_one();
         Ok(())
@@ -412,14 +350,7 @@ impl Session {
 
     fn complete(&self, p: Pending) -> std::io::Result<()> {
         if p.ep == uac2::EP_OUT {
-            return self.send(&ret_submit(
-                p.seq,
-                ST_OK,
-                p.out_len,
-                p.start_frame,
-                Some(&p.iso),
-                &[],
-            ));
+            return self.send(&ret_submit(p.seq, ST_OK, p.out_len, p.start_frame, Some(&p.iso), &[]));
         }
         // Capture: fill each packet with 48 frames of the newest mic audio.
         let mut iso = p.iso;
@@ -445,18 +376,8 @@ impl Session {
             d.actual = n as u32;
             d.status = ST_OK;
         }
-        self.dev
-            .stats
-            .in_packets
-            .fetch_add(iso.len() as u64, Ordering::Relaxed);
-        self.send(&ret_submit(
-            p.seq,
-            ST_OK,
-            data.len() as u32,
-            p.start_frame,
-            Some(&iso),
-            &data,
-        ))
+        self.dev.stats.in_packets.fetch_add(iso.len() as u64, Ordering::Relaxed);
+        self.send(&ret_submit(p.seq, ST_OK, data.len() as u32, p.start_frame, Some(&iso), &data))
     }
 
     fn scheduler(&self) {

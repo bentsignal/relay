@@ -4,11 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[inline]
 fn coef(ms: f32, sample_rate: f32) -> f32 {
-    if ms <= 0.0 {
-        0.0
-    } else {
-        (-1.0 / (ms * 0.001 * sample_rate)).exp()
-    }
+    if ms <= 0.0 { 0.0 } else { (-1.0 / (ms * 0.001 * sample_rate)).exp() }
 }
 
 #[inline]
@@ -36,14 +32,7 @@ pub struct GateParams {
 
 impl Default for GateParams {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            threshold_db: -45.0,
-            range_db: 60.0,
-            attack_ms: 1.0,
-            hold_ms: 80.0,
-            release_ms: 150.0,
-        }
+        Self { enabled: false, threshold_db: -45.0, range_db: 60.0, attack_ms: 1.0, hold_ms: 80.0, release_ms: 150.0 }
     }
 }
 
@@ -97,11 +86,7 @@ impl Gate {
         let hold = (self.params.hold_ms * 0.001 * self.sample_rate) as u32;
         for i in 0..left.len() {
             let x = left[i].abs().max(right[i].abs());
-            self.env = if x > self.env {
-                x
-            } else {
-                x + self.env_rel * (self.env - x)
-            };
+            self.env = if x > self.env { x } else { x + self.env_rel * (self.env - x) };
             let target = if self.env >= thr {
                 self.hold_left = hold;
                 1.0
@@ -111,11 +96,7 @@ impl Gate {
             } else {
                 floor
             };
-            let c = if target > self.gain {
-                self.att
-            } else {
-                self.rel
-            };
+            let c = if target > self.gain { self.att } else { self.rel };
             self.gain = target + c * (self.gain - target);
             left[i] *= self.gain;
             right[i] *= self.gain;
@@ -162,13 +143,7 @@ pub struct Compressor {
 
 impl Compressor {
     pub fn new(sample_rate: f32) -> Self {
-        let mut c = Self {
-            params: CompressorParams::default(),
-            sample_rate,
-            att: 0.0,
-            rel: 0.0,
-            gr_db: 0.0,
-        };
+        let mut c = Self { params: CompressorParams::default(), sample_rate, att: 0.0, rel: 0.0, gr_db: 0.0 };
         c.set_params(CompressorParams::default());
         c
     }
@@ -208,11 +183,7 @@ impl Compressor {
         for i in 0..left.len() {
             let x = left[i].abs().max(right[i].abs());
             let target = Self::static_reduction(&p, lin_to_db(x));
-            let c = if target > self.gr_db {
-                self.att
-            } else {
-                self.rel
-            };
+            let c = if target > self.gr_db { self.att } else { self.rel };
             self.gr_db = target + c * (self.gr_db - target);
             let g = db_to_lin(makeup - self.gr_db);
             left[i] *= g;
@@ -232,11 +203,7 @@ pub struct LimiterParams {
 
 impl Default for LimiterParams {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            ceiling_db: -1.0,
-            release_ms: 60.0,
-        }
+        Self { enabled: false, ceiling_db: -1.0, release_ms: 60.0 }
     }
 }
 
@@ -294,10 +261,7 @@ impl Limiter {
         }
         let ceil = db_to_lin(self.params.ceiling_db);
         // Per-sample attack that reaches any target within the lookahead window.
-        let att = coef(
-            LOOKAHEAD as f32 / self.sample_rate * 1000.0 / 5.0,
-            self.sample_rate,
-        );
+        let att = coef(LOOKAHEAD as f32 / self.sample_rate * 1000.0 / 5.0, self.sample_rate);
         for i in 0..left.len() {
             let xl = left[i];
             let xr = right[i];
@@ -323,12 +287,7 @@ mod tests {
 
     #[test]
     fn compressor_static_curve() {
-        let p = CompressorParams {
-            knee_db: 0.0,
-            threshold_db: -20.0,
-            ratio: 4.0,
-            ..Default::default()
-        };
+        let p = CompressorParams { knee_db: 0.0, threshold_db: -20.0, ratio: 4.0, ..Default::default() };
         assert_eq!(Compressor::static_reduction(&p, -30.0), 0.0);
         assert!((Compressor::static_reduction(&p, -10.0) - 7.5).abs() < 1e-4);
     }
@@ -336,15 +295,9 @@ mod tests {
     #[test]
     fn limiter_never_exceeds_ceiling() {
         let mut lim = Limiter::new(48000.0);
-        lim.set_params(LimiterParams {
-            enabled: true,
-            ceiling_db: -1.0,
-            release_ms: 50.0,
-        });
+        lim.set_params(LimiterParams { enabled: true, ceiling_db: -1.0, release_ms: 50.0 });
         let ceil = db_to_lin(-1.0) + 1e-6;
-        let mut l: Vec<f32> = (0..4800)
-            .map(|i| if i % 700 < 30 { 1.8 } else { 0.3 })
-            .collect();
+        let mut l: Vec<f32> = (0..4800).map(|i| if i % 700 < 30 { 1.8 } else { 0.3 }).collect();
         let mut r = l.clone();
         lim.process(&mut l, &mut r);
         assert!(l.iter().all(|s| s.abs() <= ceil));
@@ -353,12 +306,7 @@ mod tests {
     #[test]
     fn gate_closes_on_silence() {
         let mut g = Gate::new(48000.0);
-        g.set_params(GateParams {
-            enabled: true,
-            hold_ms: 0.0,
-            release_ms: 5.0,
-            ..Default::default()
-        });
+        g.set_params(GateParams { enabled: true, hold_ms: 0.0, release_ms: 5.0, ..Default::default() });
         let mut l = vec![0.0001f32; 48000];
         let mut r = l.clone();
         g.process(&mut l, &mut r);

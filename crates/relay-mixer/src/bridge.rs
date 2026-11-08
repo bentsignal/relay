@@ -113,8 +113,7 @@ impl DriftController {
             self.last_underruns = underruns;
             self.calm_since = now;
             let max = self.tuning.max_margin.as_secs_f64() * self.rate;
-            self.margin_frames =
-                (self.margin_frames + self.tuning.margin_step.as_secs_f64() * self.rate).min(max);
+            self.margin_frames = (self.margin_frames + self.tuning.margin_step.as_secs_f64() * self.rate).min(max);
             shared.set_prime_frames(self.prime_frames(shared));
         } else if now - self.calm_since > self.tuning.calm_period.as_secs_f64() {
             self.calm_since = now;
@@ -130,11 +129,8 @@ impl DriftController {
             return Steer::Keep;
         }
         let min_fill = min_fill as f64;
-        self.smoothed_fill = if self.smoothed_fill == 0.0 {
-            min_fill
-        } else {
-            self.smoothed_fill * 0.8 + min_fill * 0.2
-        };
+        self.smoothed_fill =
+            if self.smoothed_fill == 0.0 { min_fill } else { self.smoothed_fill * 0.8 + min_fill * 0.2 };
         let excess = min_fill - self.margin_frames;
         if excess > JUMP_EXCESS.as_secs_f64() * self.rate {
             self.smoothed_fill = self.margin_frames;
@@ -159,16 +155,8 @@ impl InputBridge {
         let rate = reader.shared().rate;
         let nominal = rate as f64 / ENGINE_RATE as f64;
         let ctl = DriftController::new(rate, nominal, tuning);
-        reader
-            .shared()
-            .set_prime_frames(ctl.margin_frames as u32 + 512);
-        Self {
-            reader,
-            rs: Resampler::new(nominal),
-            ctl,
-            scratch_l: vec![0.0; 16384],
-            scratch_r: vec![0.0; 16384],
-        }
+        reader.shared().set_prime_frames(ctl.margin_frames as u32 + 512);
+        Self { reader, rs: Resampler::new(nominal), ctl, scratch_l: vec![0.0; 16384], scratch_r: vec![0.0; 16384] }
     }
 
     pub fn shared(&self) -> &PipeShared {
@@ -178,8 +166,7 @@ impl InputBridge {
     pub fn stats(&self) -> BridgeStats {
         let s = self.reader.shared();
         BridgeStats {
-            buffer_ms: ((self.ctl.smoothed_fill + self.rs.buffered_input()) / self.ctl.rate
-                * 1000.0) as f32,
+            buffer_ms: ((self.ctl.smoothed_fill + self.rs.buffered_input()) / self.ctl.rate * 1000.0) as f32,
             ratio_ppm: ((self.rs.ratio() / self.rs.nominal_ratio() - 1.0) * 1e6) as f32,
             underruns: s.underruns(),
             overruns: s.overruns(),
@@ -198,16 +185,10 @@ impl InputBridge {
                 self.rs.set_ratio(r);
             }
         }
-        let need = self
-            .rs
-            .input_needed(n)
-            .min(self.scratch_l.len())
-            .min(self.rs.free_space());
+        let need = self.rs.input_needed(n).min(self.scratch_l.len()).min(self.rs.free_space());
         let mut got = 0;
         if need > 0 {
-            got = self
-                .reader
-                .read_planar(&mut self.scratch_l[..need], &mut self.scratch_r[..need]);
+            got = self.reader.read_planar(&mut self.scratch_l[..need], &mut self.scratch_r[..need]);
             if got == 0 && !self.reader.shared().is_primed() {
                 // Not delivering yet; keep the resampler history clean.
                 left.fill(0.0);
@@ -215,8 +196,7 @@ impl InputBridge {
                 return false;
             }
             // Underrun frames come back as silence; feed them to keep timing.
-            self.rs
-                .push(&self.scratch_l[..need], &self.scratch_r[..need]);
+            self.rs.push(&self.scratch_l[..need], &self.scratch_r[..need]);
         }
         let produced = self.rs.pull(left, right);
         if produced < n {
@@ -241,16 +221,8 @@ impl OutputBridge {
         let rate = writer.shared().rate;
         let nominal = ENGINE_RATE as f64 / rate as f64;
         let ctl = DriftController::new(rate, nominal, tuning);
-        writer
-            .shared()
-            .set_prime_frames(ctl.margin_frames as u32 + 480);
-        Self {
-            writer,
-            rs: Resampler::new(nominal),
-            ctl,
-            scratch_l: vec![0.0; 16384],
-            scratch_r: vec![0.0; 16384],
-        }
+        writer.shared().set_prime_frames(ctl.margin_frames as u32 + 480);
+        Self { writer, rs: Resampler::new(nominal), ctl, scratch_l: vec![0.0; 16384], scratch_r: vec![0.0; 16384] }
     }
 
     pub fn shared(&self) -> &PipeShared {
@@ -286,8 +258,7 @@ impl OutputBridge {
             if n == 0 {
                 break;
             }
-            self.writer
-                .write_planar(&self.scratch_l[..n], &self.scratch_r[..n]);
+            self.writer.write_planar(&self.scratch_l[..n], &self.scratch_r[..n]);
             if n < self.scratch_l.len() {
                 break;
             }
@@ -334,11 +305,7 @@ mod tests {
             let _ = block;
         }
         let stats = bridge.stats();
-        assert!(
-            stats.buffer_ms < 15.0,
-            "buffer grew to {} ms",
-            stats.buffer_ms
-        );
+        assert!(stats.buffer_ms < 15.0, "buffer grew to {} ms", stats.buffer_ms);
         assert!(stats.underruns <= 1, "underruns: {}", stats.underruns);
     }
 }

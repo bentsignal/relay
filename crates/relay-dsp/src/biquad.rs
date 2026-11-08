@@ -25,13 +25,7 @@ pub struct BiquadCoeffs {
 }
 
 impl BiquadCoeffs {
-    pub const IDENTITY: Self = Self {
-        b0: 1.0,
-        b1: 0.0,
-        b2: 0.0,
-        a1: 0.0,
-        a2: 0.0,
-    };
+    pub const IDENTITY: Self = Self { b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0 };
 
     pub fn design(kind: FilterKind, freq: f32, q: f32, gain_db: f32, sample_rate: f32) -> Self {
         let freq = freq.clamp(10.0, sample_rate * 0.49);
@@ -41,14 +35,9 @@ impl BiquadCoeffs {
         let alpha = sin / (2.0 * q);
         let a = 10f32.powf(gain_db / 40.0);
         let (b0, b1, b2, a0, a1, a2) = match kind {
-            FilterKind::Peak => (
-                1.0 + alpha * a,
-                -2.0 * cos,
-                1.0 - alpha * a,
-                1.0 + alpha / a,
-                -2.0 * cos,
-                1.0 - alpha / a,
-            ),
+            FilterKind::Peak => {
+                (1.0 + alpha * a, -2.0 * cos, 1.0 - alpha * a, 1.0 + alpha / a, -2.0 * cos, 1.0 - alpha / a)
+            }
             FilterKind::LowShelf => {
                 let sq = 2.0 * a.sqrt() * alpha;
                 (
@@ -71,31 +60,15 @@ impl BiquadCoeffs {
                     (a + 1.0) - (a - 1.0) * cos - sq,
                 )
             }
-            FilterKind::LowPass => (
-                (1.0 - cos) / 2.0,
-                1.0 - cos,
-                (1.0 - cos) / 2.0,
-                1.0 + alpha,
-                -2.0 * cos,
-                1.0 - alpha,
-            ),
-            FilterKind::HighPass => (
-                (1.0 + cos) / 2.0,
-                -(1.0 + cos),
-                (1.0 + cos) / 2.0,
-                1.0 + alpha,
-                -2.0 * cos,
-                1.0 - alpha,
-            ),
+            FilterKind::LowPass => {
+                ((1.0 - cos) / 2.0, 1.0 - cos, (1.0 - cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
+            }
+            FilterKind::HighPass => {
+                ((1.0 + cos) / 2.0, -(1.0 + cos), (1.0 + cos) / 2.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha)
+            }
             FilterKind::Notch => (1.0, -2.0 * cos, 1.0, 1.0 + alpha, -2.0 * cos, 1.0 - alpha),
         };
-        Self {
-            b0: b0 / a0,
-            b1: b1 / a0,
-            b2: b2 / a0,
-            a1: a1 / a0,
-            a2: a2 / a0,
-        }
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 }
     }
 
     /// Magnitude response in dB at `freq`, used by the UI to draw EQ curves.
@@ -122,19 +95,13 @@ pub struct Biquad {
 
 impl Default for Biquad {
     fn default() -> Self {
-        Self {
-            coeffs: BiquadCoeffs::IDENTITY,
-            z: [[0.0; 2]; 2],
-        }
+        Self { coeffs: BiquadCoeffs::IDENTITY, z: [[0.0; 2]; 2] }
     }
 }
 
 impl Biquad {
     pub fn new(coeffs: BiquadCoeffs) -> Self {
-        Self {
-            coeffs,
-            z: [[0.0; 2]; 2],
-        }
+        Self { coeffs, z: [[0.0; 2]; 2] }
     }
 
     pub fn reset(&mut self) {
@@ -192,9 +159,7 @@ mod tests {
         let c = BiquadCoeffs::design(FilterKind::Peak, 1000.0, 1.0, -12.0, 48000.0);
         let mut bq = Biquad::new(c);
         let n = 48000;
-        let mut l: Vec<f32> = (0..n)
-            .map(|i| (2.0 * PI * 1000.0 * i as f32 / 48000.0).sin())
-            .collect();
+        let mut l: Vec<f32> = (0..n).map(|i| (2.0 * PI * 1000.0 * i as f32 / 48000.0).sin()).collect();
         let mut r = l.clone();
         bq.process(&mut l, &mut r);
         let peak = l[n / 2..].iter().fold(0f32, |m, s| m.max(s.abs()));

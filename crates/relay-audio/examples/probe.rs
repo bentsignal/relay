@@ -5,18 +5,11 @@ use std::time::{Duration, Instant};
 
 fn main() -> anyhow::Result<()> {
     let needle = std::env::args().nth(1).unwrap_or_else(|| "Relay".into());
-    let secs: u64 = std::env::args()
-        .nth(2)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(8);
+    let secs: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(8);
     let devices = relay_audio::list_devices();
     let out = devices.outputs.iter().find(|d| d.name.contains(&needle));
     let inp = devices.inputs.iter().find(|d| d.name.contains(&needle));
-    println!(
-        "output: {:?}\ninput: {:?}",
-        out.map(|d| &d.name),
-        inp.map(|d| &d.name)
-    );
+    println!("output: {:?}\ninput: {:?}", out.map(|d| &d.name), inp.map(|d| &d.name));
     let mut play = out.map(|d| relay_audio::open_output(&d.key)).transpose()?;
     let mut rec = inp.map(|d| relay_audio::open_input(&d.key)).transpose()?;
     let start = Instant::now();
@@ -32,8 +25,7 @@ fn main() -> anyhow::Result<()> {
     let mut last = Instant::now();
     while start.elapsed() < Duration::from_secs(secs) {
         if let Some((s, w)) = play.as_mut() {
-            let due =
-                (start.elapsed().as_secs_f64() * s.rate as f64) as usize + s.rate as usize / 50;
+            let due = (start.elapsed().as_secs_f64() * s.rate as f64) as usize + s.rate as usize / 50;
             while written + 480 <= due {
                 for f in 0..480 {
                     let v = (phase * std::f32::consts::TAU).sin() * 0.5;
@@ -59,19 +51,9 @@ fn main() -> anyhow::Result<()> {
             }
         }
         if last.elapsed() >= Duration::from_secs(1) {
-            let hz = if samples > 0 {
-                crossings as f64 * 48000.0 / samples as f64
-            } else {
-                0.0
-            };
-            let (pu, po) = play
-                .as_ref()
-                .map(|(s, _)| (s.pipe.underruns(), s.pipe.overruns()))
-                .unwrap_or_default();
-            let (ru, ro) = rec
-                .as_ref()
-                .map(|(s, _)| (s.pipe.underruns(), s.pipe.overruns()))
-                .unwrap_or_default();
+            let hz = if samples > 0 { crossings as f64 * 48000.0 / samples as f64 } else { 0.0 };
+            let (pu, po) = play.as_ref().map(|(s, _)| (s.pipe.underruns(), s.pipe.overruns())).unwrap_or_default();
+            let (ru, ro) = rec.as_ref().map(|(s, _)| (s.pipe.underruns(), s.pipe.overruns())).unwrap_or_default();
             println!(
                 "mic peak {peak:.3} ~{hz:.0} Hz | play underruns {pu} overruns {po} | rec underruns {ru} overruns {ro}"
             );

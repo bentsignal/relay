@@ -42,8 +42,7 @@ impl PipeShared {
         self.max_read.load(Ordering::Relaxed)
     }
     pub fn set_prime_frames(&self, frames: u32) {
-        self.prime_frames
-            .store(frames.min(self.capacity / 2), Ordering::Relaxed);
+        self.prime_frames.store(frames.min(self.capacity / 2), Ordering::Relaxed);
     }
     pub fn prime_frames(&self) -> u32 {
         self.prime_frames.load(Ordering::Relaxed)
@@ -83,13 +82,7 @@ pub fn pipe(rate: u32, capacity_frames: usize) -> (PipeWriter, PipeReader) {
         active: AtomicBool::new(true),
         primed: AtomicBool::new(false),
     });
-    (
-        PipeWriter {
-            prod,
-            shared: shared.clone(),
-        },
-        PipeReader { cons, shared },
-    )
+    (PipeWriter { prod, shared: shared.clone() }, PipeReader { cons, shared })
 }
 
 impl PipeWriter {
