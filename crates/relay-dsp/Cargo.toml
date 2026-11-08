@@ -1,0 +1,11 @@
+[package]
+name = "relay-dsp"
+description = "Realtime-safe DSP building blocks for Relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+
+[dev-dependencies]

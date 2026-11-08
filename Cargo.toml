@@ -1,0 +1,57 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/bentsignal/relay"
+rust-version = "1.90"
+
+[workspace.dependencies]
+relay-dsp = { path = "crates/relay-dsp" }
+relay-mixer = { path = "crates/relay-mixer" }
+relay-proto = { path = "crates/relay-proto" }
+relay-audio = { path = "crates/relay-audio" }
+relay-usbip = { path = "crates/relay-usbip" }
+relay-net = { path = "crates/relay-net" }
+relay-update = { path = "crates/relay-update" }
+relay-video = { path = "crates/relay-video" }
+relay-ipc = { path = "crates/relay-ipc" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["use-std"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+rtrb = "0.4"
+cpal = "0.18.2"
+gpui = "0.2.2"
+directories = "6"
+interprocess = "2.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "io-util"] }
+quinn = "0.11"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+rcgen = "0.14"
+mdns-sd = "0.21"
+opus = "0.4"
+rand = "0.9"
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+base64 = "0.22"
+hex = "0.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 4
+debug = "line-tables-only"
+panic = "unwind"
+
+[profile.dev.package."*"]
+opt-level = 2

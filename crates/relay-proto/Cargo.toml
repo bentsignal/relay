@@ -1,0 +1,10 @@
+[package]
+name = "relay-proto"
+description = "Types shared by the Relay engine and its UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+relay-dsp = { workspace = true }
