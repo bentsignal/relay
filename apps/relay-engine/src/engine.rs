@@ -614,6 +614,10 @@ impl Engine {
         let before = self.virt.state();
         self.virt.tick();
         let virt_changed = self.virt.state() != before;
+        if virt_changed && before == VirtualAudioState::Installing {
+            // The one-time install also sets up the Relay Camera.
+            self.video_mgr.recheck_camera();
+        }
 
         let devices = relay_audio::list_devices();
         let devices_changed = devices != self.devices;

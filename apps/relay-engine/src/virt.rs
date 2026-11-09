@@ -53,6 +53,19 @@ mod windows {
     use relay_usbip::{DEFAULT_PORT, Identity, VirtualAudio, attach};
     use std::process::Command;
 
+    /// The Relay Camera media source shipped next to the engine, if any.
+    fn packaged_camera() -> Option<std::path::PathBuf> {
+        let exe = std::env::current_exe().ok()?;
+        let p = exe.parent()?.join("camera").join("relay-camera.dll");
+        p.is_file().then_some(p)
+    }
+
+    /// The one-time install also registers the Relay Camera; it needs running
+    /// again when the packaged camera isn't installed (or is out of date).
+    fn camera_needs_install() -> bool {
+        packaged_camera().map(|p| relay_video::camera::needs_install(&p)).unwrap_or(false)
+    }
+
     pub struct WinVirtual {
         va: Option<VirtualAudio>,
         state: VirtualAudioState,
@@ -84,6 +97,8 @@ mod windows {
                         return;
                     }
                     match va.attach_all() {
+                        // Audio works either way; NeedsInstall offers the camera setup.
+                        Ok(()) if camera_needs_install() => self.state = VirtualAudioState::NeedsInstall,
                         Ok(()) => self.state = VirtualAudioState::Ready,
                         Err(e) => {
                             self.state = VirtualAudioState::Error(format!("Couldn't plug in Relay's devices: {e}"))
@@ -142,7 +157,18 @@ mod windows {
                     Ok(Some(status)) => {
                         self.installing = None;
                         if status.success() && attach::driver_installed() {
-                            self.start();
+                            if self.va.is_some() {
+                                // Audio was already running; this install was for the camera.
+                                if camera_needs_install() {
+                                    tracing::warn!("the Relay Camera still isn't installed");
+                                }
+                                self.state = VirtualAudioState::Ready;
+                            } else {
+                                self.start();
+                            }
+                        } else if self.va.is_some() {
+                            // Audio still works; the camera install was declined or failed.
+                            self.state = VirtualAudioState::NeedsInstall;
                         } else {
                             self.state = VirtualAudioState::Error("The audio driver wasn't installed.".into());
                         }

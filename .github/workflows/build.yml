@@ -54,6 +54,9 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install binary-refinery
       - run: cargo test --workspace --locked
+      # Visual Studio and CMake come with the runner; package.ps1 ships the DLL.
+      - name: Build the Relay Camera media source
+        run: pwsh scripts/windows/build-camera.ps1
       - run: pwsh scripts/windows/package.ps1
       - uses: actions/upload-artifact@v4
         with:

@@ -452,7 +452,7 @@ impl RelayApp {
             VirtualAudioState::NeedsInstall => Some(
                 row(t.warn)
                     .child(dot(t.warn))
-                    .child(div().flex_1().child("Relay's audio devices need a one-time install."))
+                    .child(div().flex_1().child("Relay's audio and camera devices need a one-time install."))
                     .child(
                         primary_button("install-va", "Install", &t)
                             .on_click(cx.listener(|this, _, _, _| this.cmd(Command::InstallVirtualAudio))),
