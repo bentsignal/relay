@@ -53,5 +53,9 @@ codegen-units = 4
 debug = "line-tables-only"
 panic = "unwind"
 
+[profile.dev]
+# Realtime audio needs optimized code even in development builds.
+opt-level = 1
+
 [profile.dev.package."*"]
 opt-level = 2

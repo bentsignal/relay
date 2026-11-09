@@ -8,7 +8,8 @@ fn main() -> anyhow::Result<()> {
     let secs: u64 = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(8);
     let devices = relay_audio::list_devices();
     let out = devices.outputs.iter().find(|d| d.name.contains(&needle));
-    let inp = devices.inputs.iter().find(|d| d.name.contains(&needle));
+    let in_needle = std::env::args().nth(3).unwrap_or_else(|| needle.clone());
+    let inp = devices.inputs.iter().find(|d| d.name.contains(&in_needle));
     println!("output: {:?}\ninput: {:?}", out.map(|d| &d.name), inp.map(|d| &d.name));
     let mut play = out.map(|d| relay_audio::open_output(&d.key)).transpose()?;
     let mut rec = inp.map(|d| relay_audio::open_input(&d.key)).transpose()?;

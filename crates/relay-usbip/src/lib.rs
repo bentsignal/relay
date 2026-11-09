@@ -82,6 +82,7 @@ impl VirtualAudio {
     /// (they disappear when their TCP session died).
     pub fn attach_all(&mut self) -> Result<()> {
         let Some(client) = self.client.clone() else { bail!("usbip client not found") };
+        attach::stop_reattach_attempts(&client);
         for stale in attach::our_ports(&client, self.port) {
             let _ = attach::detach(&client, stale);
         }

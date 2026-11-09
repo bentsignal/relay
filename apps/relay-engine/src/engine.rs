@@ -634,6 +634,13 @@ impl Engine {
             let out = self.devices.outputs.iter().find(|d| d.is_relay).map(|d| d.key.clone());
             let inp = self.devices.inputs.iter().find(|d| d.is_relay).map(|d| d.key.clone());
             if let (Some(out), Some(inp)) = (out, inp) {
+                // Relay's own devices pass audio through untouched: full volume,
+                // no Windows effects. Relay's faders set the level.
+                for key in [&out, &inp] {
+                    let id = relay_audio::windows::endpoint_id_from_key(key);
+                    let _ = relay_audio::windows::disable_enhancements(id);
+                }
+                let _ = relay_audio::windows::set_endpoint_unity(relay_audio::windows::endpoint_id_from_key(&inp));
                 for key in [out, inp] {
                     if let Err(e) =
                         relay_audio::windows::set_default_endpoint(relay_audio::windows::endpoint_id_from_key(&key))
@@ -724,6 +731,33 @@ impl Engine {
             }
         }
 
+        if std::env::var_os("RELAY_DEBUG_PIPES").is_some() {
+            for (id, p) in &self.strips {
+                if let Live::Pipe(sh) = &p.live {
+                    tracing::info!(
+                        id,
+                        underruns = sh.underruns(),
+                        overruns = sh.overruns(),
+                        primed = sh.is_primed(),
+                        prime = sh.prime_frames(),
+                        max_read = sh.max_read(),
+                        "strip pipe"
+                    );
+                }
+            }
+            for (id, p) in &self.buses {
+                if let Live::Pipe(sh) = &p.live {
+                    tracing::info!(
+                        id,
+                        underruns = sh.underruns(),
+                        overruns = sh.overruns(),
+                        primed = sh.is_primed(),
+                        prime = sh.prime_frames(),
+                        "bus pipe"
+                    );
+                }
+            }
+        }
         // Engine load.
         let m = self.graph.meters();
         let cycles = m.cycles.load(Ordering::Relaxed);

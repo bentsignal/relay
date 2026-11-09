@@ -236,3 +236,105 @@ pub fn open_app(exe: &str) -> anyhow::Result<(DeviceStream, PipeReader)> {
     ready_rx.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| anyhow!("app capture didn't start"))??;
     Ok((DeviceStream::from_thread(stop, exe.to_string(), rate, shared, failed), reader))
 }
+
+// ---------------------------------------------------------------- endpoint volume
+
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+
+fn endpoint_volume_iface(id: &str) -> anyhow::Result<IAudioEndpointVolume> {
+    let e = enumerator()?;
+    let wide: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    let dev = unsafe { e.GetDevice(PCWSTR(wide.as_ptr()))? };
+    Ok(unsafe { dev.Activate::<IAudioEndpointVolume>(CLSCTX_ALL, None)? })
+}
+
+/// (volume 0..1, muted) of an endpoint.
+pub fn endpoint_volume(id: &str) -> anyhow::Result<(f32, bool)> {
+    let v = endpoint_volume_iface(id)?;
+    unsafe { Ok((v.GetMasterVolumeLevelScalar()?, v.GetMute()?.as_bool())) }
+}
+
+/// Sets an endpoint to full volume, unmuted. Relay's own faders control level,
+/// so its virtual microphone should pass audio through unchanged.
+pub fn set_endpoint_unity(id: &str) -> anyhow::Result<()> {
+    let v = endpoint_volume_iface(id)?;
+    unsafe {
+        v.SetMasterVolumeLevelScalar(1.0, std::ptr::null())?;
+        v.SetMute(false, std::ptr::null())?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------- enhancements
+
+/// PKEY_AudioEndpoint_Disable_SysFx: 1 turns off all system audio effects
+/// ("Audio enhancements" in Settings), including Windows' automatic echo
+/// cancellation, which would otherwise erase audio Relay routes into its mic
+/// whenever the same audio is also playing.
+const PKEY_DISABLE_SYSFX: windows::Win32::Foundation::PROPERTYKEY =
+    windows::Win32::Foundation::PROPERTYKEY { fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e), pid: 5 };
+
+#[repr(C)]
+struct PolicyConfigFullVtbl {
+    query_interface: usize,
+    add_ref: usize,
+    release: unsafe extern "system" fn(*mut c_void) -> u32,
+    _before: [usize; 9],
+    set_property_value: unsafe extern "system" fn(
+        *mut c_void,
+        PCWSTR,
+        i32,
+        *const windows::Win32::Foundation::PROPERTYKEY,
+        *const windows::Win32::System::Com::StructuredStorage::PROPVARIANT,
+    ) -> HRESULT,
+}
+
+/// Turns off Windows audio effects for an endpoint (no admin rights needed:
+/// the audio service applies it, like the Settings toggle).
+pub fn disable_enhancements(endpoint_id: &str) -> Result<()> {
+    com();
+    let unk: IUnknown = unsafe { CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL)? };
+    let mut ptr: *mut c_void = std::ptr::null_mut();
+    unsafe { unk.query(&IID_POLICY_CONFIG, &mut ptr) }.ok()?;
+    if ptr.is_null() {
+        return Err(anyhow!("IPolicyConfig unavailable"));
+    }
+    let wide: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
+    let value = windows::Win32::System::Com::StructuredStorage::PROPVARIANT::from(1u32);
+    let hr = unsafe {
+        let vtbl = &**(ptr as *mut *const PolicyConfigFullVtbl);
+        let hr = (vtbl.set_property_value)(ptr, PCWSTR(wide.as_ptr()), 0, &PKEY_DISABLE_SYSFX, &value);
+        (vtbl.release)(ptr);
+        hr
+    };
+    hr.ok().map_err(|e| anyhow!("couldn't turn off enhancements: {e}"))
+}
+
+/// Removes the stream/mode effect APOs Windows attached to an endpoint (e.g.
+/// Voice Clarity on microphones without their own processing).
+pub fn clear_effects(endpoint_id: &str) -> Result<()> {
+    com();
+    let unk: IUnknown = unsafe { CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL)? };
+    let mut ptr: *mut c_void = std::ptr::null_mut();
+    unsafe { unk.query(&IID_POLICY_CONFIG, &mut ptr) }.ok()?;
+    if ptr.is_null() {
+        return Err(anyhow!("IPolicyConfig unavailable"));
+    }
+    let wide: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
+    let fx = GUID::from_u128(0xd3993a3f_99c2_4402_b5ec_a92a0367664b);
+    let null =
+        windows::Win32::System::Com::StructuredStorage::PROPVARIANT::from("{00000000-0000-0000-0000-000000000000}");
+    let mut last = Ok(());
+    unsafe {
+        let vtbl = &**(ptr as *mut *const PolicyConfigFullVtbl);
+        for pid in [5u32, 6, 7] {
+            let key = windows::Win32::Foundation::PROPERTYKEY { fmtid: fx, pid };
+            let hr = (vtbl.set_property_value)(ptr, PCWSTR(wide.as_ptr()), 1, &key, &null);
+            if hr.is_err() {
+                last = Err(anyhow!("clearing effect {pid}: {hr:?}"));
+            }
+        }
+        (vtbl.release)(ptr);
+    }
+    last
+}

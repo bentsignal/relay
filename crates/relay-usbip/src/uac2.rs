@@ -75,18 +75,19 @@ impl Descriptors {
         let ac_start = c.len();
         c.extend_from_slice(&[9, 0x24, 1, 0x00, 0x02, 0x08, 0, 0, 0]); // header, bcdADC 2.0, category I/O box
         c.extend_from_slice(&[8, 0x24, 0x0A, CLOCK_ID, 0x01, 0x05, 0, 0]); // internal fixed clock
-        let it = |id: u8, ttype: u16| {
+        // Terminal names (string 4: playback, 5: capture) become endpoint names.
+        let it = |id: u8, ttype: u16, name: u8| {
             let t = ttype.to_le_bytes();
-            [17, 0x24, 0x02, id, t[0], t[1], 0, CLOCK_ID, CHANNELS as u8, 3, 0, 0, 0, 0, 0, 0, 0]
+            [17, 0x24, 0x02, id, t[0], t[1], 0, CLOCK_ID, CHANNELS as u8, 3, 0, 0, 0, 0, 0, 0, name]
         };
-        let ot = |id: u8, ttype: u16, src: u8| {
+        let ot = |id: u8, ttype: u16, src: u8, name: u8| {
             let t = ttype.to_le_bytes();
-            [12, 0x24, 0x03, id, t[0], t[1], 0, src, CLOCK_ID, 0, 0, 0]
+            [12, 0x24, 0x03, id, t[0], t[1], 0, src, CLOCK_ID, 0, 0, name]
         };
-        c.extend_from_slice(&it(IT_USB, 0x0101));
-        c.extend_from_slice(&ot(OT_SPEAKER, 0x0301, IT_USB));
-        c.extend_from_slice(&it(IT_MIC, 0x0201));
-        c.extend_from_slice(&ot(OT_USB, 0x0101, IT_MIC));
+        c.extend_from_slice(&it(IT_USB, 0x0101, 0));
+        c.extend_from_slice(&ot(OT_SPEAKER, 0x0301, IT_USB, 4));
+        c.extend_from_slice(&it(IT_MIC, mic_terminal_type(), 5));
+        c.extend_from_slice(&ot(OT_USB, 0x0101, IT_MIC, 0));
         let ac_len = (c.len() - ac_start) as u16;
         c[ac_start + 6..ac_start + 8].copy_from_slice(&ac_len.to_le_bytes());
 
@@ -107,8 +108,14 @@ impl Descriptors {
         let total = c.len() as u16;
         c[2..4].copy_from_slice(&total.to_le_bytes());
 
-        let strings =
-            vec![vec![4, 3, 0x09, 0x04], string_desc("Relay"), string_desc(&id.product), string_desc(&id.serial)];
+        let strings = vec![
+            vec![4, 3, 0x09, 0x04],
+            string_desc("Relay"),
+            string_desc(&id.product),
+            string_desc(&id.serial),
+            string_desc(&id.product),
+            string_desc(&format!("{} Mic", id.product)),
+        ];
         Self { device, config: c, strings }
     }
 }
@@ -277,4 +284,15 @@ mod tests {
             _ => panic!("expected data"),
         }
     }
+}
+
+/// USB terminal type of the capture side. 0x0603 ("Line connector") rather than
+/// 0x0201 ("Microphone"): Windows attaches voice processing (noise suppression
+/// that erases steady sounds) to microphones without their own effects, which
+/// would damage music and other audio routed through Relay.
+pub fn mic_terminal_type() -> u16 {
+    std::env::var("RELAY_MIC_TERMINAL")
+        .ok()
+        .and_then(|v| u16::from_str_radix(v.trim_start_matches("0x"), 16).ok())
+        .unwrap_or(0x0603)
 }

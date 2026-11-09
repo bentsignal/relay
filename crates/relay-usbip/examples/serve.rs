@@ -14,7 +14,11 @@ fn main() -> anyhow::Result<()> {
     );
     let (mut va, mut eps) = VirtualAudio::start(
         DEFAULT_PORT,
-        vec![Identity { product: "Relay Test".into(), serial: "RELAY-TEST-1".into(), product_id: 0x0001 }],
+        vec![Identity {
+            product: "Relay Test".into(),
+            serial: std::env::var("SERIAL").unwrap_or_else(|_| "RELAY-TEST-1".into()),
+            product_id: 0x0001,
+        }],
     )?;
     println!("client found: {}", va.client_found());
     va.attach_all()?;
@@ -33,7 +37,9 @@ fn main() -> anyhow::Result<()> {
         while written + 480 <= due + 960 {
             for f in 0..480 {
                 let s = (phase * std::f32::consts::TAU).sin() * 0.3;
-                phase = (phase + 440.0 / 48000.0).fract();
+                phase = (phase
+                    + std::env::var("TONE").ok().and_then(|t| t.parse::<f32>().ok()).unwrap_or(440.0) / 48000.0)
+                    .fract();
                 buf[f * 2] = s;
                 buf[f * 2 + 1] = s;
             }

@@ -105,3 +105,11 @@ pub fn our_ports(client: &Path, tcp_port: u16) -> Vec<u8> {
     }
     ports
 }
+
+/// Cancels pending automatic re-attach attempts. usbip-win2 starts one when an
+/// attached device's server goes away (e.g. the engine crashed); left running,
+/// they keep re-importing and reset the device Windows is using. Attached
+/// devices are unaffected. (The per-device `--stop` form isn't accepted.)
+pub fn stop_reattach_attempts(client: &Path) {
+    let _ = quiet(Command::new(client).args(["attach", "--stop-all"])).output();
+}

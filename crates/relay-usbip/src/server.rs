@@ -295,7 +295,20 @@ impl Session {
             let result = {
                 let mut usb = self.dev.usb.lock();
                 let prev_capture = usb.capture_alt;
+                let prev_play = usb.playback_alt;
                 let r = uac2::control(&self.dev.desc, &mut usb, setup, &sub.data);
+                if usb.playback_alt != prev_play || usb.capture_alt != prev_capture {
+                    tracing::info!(playback = usb.playback_alt, capture = usb.capture_alt, "interface change");
+                }
+                if setup.request_type & 0x60 != 0 {
+                    tracing::debug!(
+                        rt = setup.request_type,
+                        req = setup.request,
+                        value = setup.value,
+                        index = setup.index,
+                        "class request"
+                    );
+                }
                 self.dev.stats.playback_active.store(usb.playback_alt == 1, Ordering::Relaxed);
                 self.dev.stats.capture_active.store(usb.capture_alt == 1, Ordering::Relaxed);
                 if usb.capture_alt == 1 && prev_capture != 1 {
@@ -391,7 +404,19 @@ impl Session {
             d.actual = n as u32;
             d.status = ST_OK;
         }
-        self.dev.stats.in_packets.fetch_add(iso.len() as u64, Ordering::Relaxed);
+        let n = self.dev.stats.in_packets.fetch_add(iso.len() as u64, Ordering::Relaxed);
+        if n / 1000 != (n + iso.len() as u64) / 1000 {
+            let cap = self.dev.capture.lock();
+            let peak = floats.iter().fold(0f32, |m, s| m.max(s.abs()));
+            tracing::debug!(
+                packets = iso.len(),
+                fill = cap.fill_frames(),
+                underruns = cap.shared().underruns(),
+                primed = cap.shared().is_primed(),
+                peak,
+                "capture completion"
+            );
+        }
         self.send(&ret_submit(p.seq, ST_OK, data.len() as u32, p.start_frame, Some(&iso), &data))
     }
 
