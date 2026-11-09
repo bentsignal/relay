@@ -14,8 +14,8 @@ app="$dist/stage-macos/Relay.app"
 rm -rf "$dist/stage-macos"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/relay target/release/relay-engine "$app/Contents/MacOS/"
-if [[ -x scripts/macos/build-hal-plugin.sh ]]; then
-  scripts/macos/build-hal-plugin.sh "$app/Contents/Resources"
+if [[ -f scripts/macos/build-hal-plugin.sh ]]; then
+  bash scripts/macos/build-hal-plugin.sh "$app/Contents/Resources"
 fi
 [[ -f assets/relay.icns ]] && cp assets/relay.icns "$app/Contents/Resources/relay.icns"
 cp LICENSE THIRD-PARTY-NOTICES.md "$app/Contents/Resources/"
