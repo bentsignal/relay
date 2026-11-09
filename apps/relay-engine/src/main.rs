@@ -163,6 +163,7 @@ fn control_loop(engine: &mut Engine, rx: Receiver<Event>, _tx: Sender<Event>) {
                 engine.tick();
             }
         }
+        engine.ui_clients = clients.len();
         engine.poll_network();
         engine.poll_video();
         engine.poll_updates();

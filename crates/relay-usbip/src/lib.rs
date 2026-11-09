@@ -33,6 +33,7 @@ pub struct Endpoints {
 
 pub struct VirtualAudio {
     server: Arc<server::Server>,
+    stats: Vec<Arc<DeviceStats>>,
     client: Option<PathBuf>,
     port: u16,
     attached: Vec<u8>,
@@ -50,12 +51,13 @@ impl VirtualAudio {
             specs.push(server::DeviceSpec { identity: id, playback: play_w, capture: cap_r });
         }
         let (server, stats) = server::Server::start(port, specs)?;
+        let all_stats = stats.clone();
         let endpoints = ends
             .into_iter()
             .zip(stats)
             .map(|((name, playback, capture), stats)| Endpoints { name, playback, capture, stats })
             .collect();
-        Ok((Self { server, client: attach::find_client(), port, attached: Vec::new() }, endpoints))
+        Ok((Self { server, stats: all_stats, client: attach::find_client(), port, attached: Vec::new() }, endpoints))
     }
 
     /// A fresh reader of what apps play to device `index` (replaces any previous reader).
@@ -83,10 +85,37 @@ impl VirtualAudio {
         for stale in attach::our_ports(&client, self.port) {
             let _ = attach::detach(&client, stale);
         }
-        for busid in self.server.busids() {
-            let port = attach::attach(&client, self.port, &busid)?;
-            tracing::info!(%busid, port, "virtual device attached");
-            self.attached.push(port);
+        use std::sync::atomic::Ordering::Relaxed;
+        // A reconnect left over from a previous run may plug a device in by itself.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        for (i, busid) in self.server.busids().into_iter().enumerate() {
+            let connected = || self.stats.get(i).map(|s| s.connected.load(Relaxed)).unwrap_or(false);
+            if connected() {
+                tracing::info!(%busid, "virtual device already attached");
+                continue;
+            }
+            match attach::attach(&client, self.port, &busid) {
+                Ok(port) => {
+                    tracing::info!(%busid, port, "virtual device attached");
+                    self.attached.push(port);
+                }
+                Err(e) => {
+                    // The import may have been taken by that leftover reconnect.
+                    let t = std::time::Instant::now();
+                    while !connected() && t.elapsed() < std::time::Duration::from_secs(3) {
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    if !connected() {
+                        return Err(e);
+                    }
+                    tracing::info!(%busid, "virtual device attached by an earlier request");
+                }
+            }
+        }
+        for p in attach::our_ports(&client, self.port) {
+            if !self.attached.contains(&p) {
+                self.attached.push(p);
+            }
         }
         Ok(())
     }

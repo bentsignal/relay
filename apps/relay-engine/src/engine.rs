@@ -55,6 +55,9 @@ pub struct Engine {
     pub quit: bool,
     video_mgr: crate::video::VideoMgr,
     firewall_fix: Option<std::process::Child>,
+    ticks: u64,
+    /// Number of connected UIs; some scans only matter while one is open.
+    pub ui_clients: usize,
     firewall_checked: Option<Instant>,
     pub net: Option<relay_net::NetHandle>,
     net_events: Option<crossbeam_channel::Receiver<relay_net::NetEvent>>,
@@ -102,6 +105,8 @@ impl Engine {
             quit: false,
             video_mgr: crate::video::VideoMgr::default(),
             firewall_fix: None,
+            ticks: 0,
+            ui_clients: 0,
             firewall_checked: None,
             net: None,
             net_events: None,
@@ -632,11 +637,16 @@ impl Engine {
         self.virt.tick();
         let virt_changed = self.virt.state() != before;
 
-        let devices = relay_audio::list_devices();
-        let devices_changed = devices != self.devices;
-        if devices_changed {
-            self.devices = devices;
-            self.dirty = true;
+        self.ticks += 1;
+        // Device scans cost a few ms of COM calls; every other tick is plenty.
+        let mut devices_changed = false;
+        if self.ticks % 2 == 1 || virt_changed {
+            let devices = relay_audio::list_devices();
+            devices_changed = devices != self.devices;
+            if devices_changed {
+                self.devices = devices;
+                self.dirty = true;
+            }
         }
 
         // Reopen ports that failed or whose device came back.
@@ -688,6 +698,8 @@ impl Engine {
             }
         }
         #[cfg(windows)]
+        if self.ticks % 2 == 0
+            && (self.ui_clients > 0 || self.cfg.mixer.strips.iter().any(|s| matches!(s.source, Source::App { .. })))
         {
             let apps = relay_audio::windows::list_apps();
             if apps != self.apps {
