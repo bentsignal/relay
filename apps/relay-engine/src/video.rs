@@ -22,6 +22,8 @@ struct Receiving {
     stop: Arc<AtomicBool>,
     need_key: Arc<AtomicBool>,
     open: Arc<AtomicBool>,
+    /// This stream is what the Relay Camera shows.
+    as_camera: Arc<AtomicBool>,
 }
 
 pub struct VideoMgr {
@@ -30,11 +32,27 @@ pub struct VideoMgr {
     next_id: u32,
     sources: Vec<VideoSource>,
     sources_at: Option<Instant>,
+    /// The Relay Camera is set up and visible to apps (checked in the background).
+    camera: Arc<AtomicBool>,
+    camera_checking: Arc<AtomicBool>,
+    /// The last setup attempt failed (e.g. camera access is off): retry slowly.
+    camera_failed: Arc<AtomicBool>,
+    camera_at: Option<Instant>,
 }
 
 impl Default for VideoMgr {
     fn default() -> Self {
-        Self { sending: Vec::new(), receiving: Vec::new(), next_id: 1000, sources: Vec::new(), sources_at: None }
+        Self {
+            sending: Vec::new(),
+            receiving: Vec::new(),
+            next_id: 1000,
+            sources: Vec::new(),
+            sources_at: None,
+            camera: Arc::new(AtomicBool::new(false)),
+            camera_checking: Arc::new(AtomicBool::new(false)),
+            camera_failed: Arc::new(AtomicBool::new(false)),
+            camera_at: None,
+        }
     }
 }
 
@@ -103,8 +121,9 @@ impl VideoMgr {
         let stop = Arc::new(AtomicBool::new(false));
         let need_key = Arc::new(AtomicBool::new(false));
         let open = Arc::new(AtomicBool::new(true));
+        let as_camera = Arc::new(AtomicBool::new(false));
         let title = if name.is_empty() { peer_name.to_string() } else { format!("{peer_name} · {name}") };
-        let (s2, k2, o2) = (stop.clone(), need_key.clone(), open.clone());
+        let (s2, k2, o2, c2) = (stop.clone(), need_key.clone(), open.clone(), as_camera.clone());
         let _ = std::thread::Builder::new().name("relay-video-recv".into()).spawn(move || {
             #[cfg(any(windows, target_os = "macos"))]
             {
@@ -133,16 +152,26 @@ impl VideoMgr {
                     if viewer.take_keyframe_request() {
                         k2.store(true, Ordering::Relaxed);
                     }
+                    c2.store(viewer.is_camera(), Ordering::Relaxed);
                 }
             }
             #[cfg(not(any(windows, target_os = "macos")))]
             {
-                let _ = (rx, s2, k2, title);
+                let _ = (rx, s2, k2, &c2, title);
                 tracing::warn!("no video viewer on this platform yet");
             }
+            c2.store(false, Ordering::Relaxed);
             o2.store(false, Ordering::Relaxed);
         });
-        self.receiving.push(Receiving { peer: peer.to_string(), stream, name: name.to_string(), stop, need_key, open });
+        self.receiving.push(Receiving {
+            peer: peer.to_string(),
+            stream,
+            name: name.to_string(),
+            stop,
+            need_key,
+            open,
+            as_camera,
+        });
     }
 
     pub fn on_ended(&mut self, peer: &str, stream: u32) {
@@ -180,11 +209,52 @@ impl VideoMgr {
         }
     }
 
+    /// Re-checks the Relay Camera now (e.g. after the one-time install).
+    pub fn recheck_camera(&mut self) {
+        self.camera_at = None;
+    }
+
+    /// Makes sure the Relay Camera device exists for this user once its media
+    /// source is installed (no admin needed), off the control thread.
+    fn check_camera(&mut self) {
+        let every = Duration::from_secs(if self.camera_failed.load(Ordering::Relaxed) { 600 } else { 30 });
+        if self.camera_at.map(|t| t.elapsed() < every).unwrap_or(false)
+            || self.camera_checking.swap(true, Ordering::Relaxed)
+        {
+            return;
+        }
+        self.camera_at = Some(Instant::now());
+        let (ok, busy, failed) = (self.camera.clone(), self.camera_checking.clone(), self.camera_failed.clone());
+        let spawned = std::thread::Builder::new().name("relay-camera-check".into()).spawn(move || {
+            let was = ok.load(Ordering::Relaxed);
+            let now = match relay_video::camera::ensure_registered() {
+                Ok(v) => {
+                    failed.store(false, Ordering::Relaxed);
+                    v
+                }
+                Err(e) => {
+                    tracing::warn!("Relay Camera setup failed: {e:#}");
+                    failed.store(true, Ordering::Relaxed);
+                    false
+                }
+            };
+            if now != was {
+                tracing::info!("Relay Camera {}", if now { "available" } else { "unavailable" });
+            }
+            ok.store(now, Ordering::Relaxed);
+            busy.store(false, Ordering::Relaxed);
+        });
+        if spawned.is_err() {
+            self.camera_checking.store(false, Ordering::Relaxed);
+        }
+    }
+
     pub fn state(&mut self) -> Video {
         if self.sources_at.map(|t| t.elapsed() > Duration::from_secs(5)).unwrap_or(true) {
             self.sources = relay_video::sources();
             self.sources_at = Some(Instant::now());
         }
+        self.check_camera();
         Video {
             sources: self.sources.clone(),
             sending: self
@@ -222,11 +292,11 @@ impl VideoMgr {
                     height: 0,
                     fps: 0.0,
                     latency_ms: 0.0,
-                    as_camera: false,
+                    as_camera: r.as_camera.load(Ordering::Relaxed),
                     decoder: "Hardware H.264".into(),
                 })
                 .collect(),
-            camera_supported: false,
+            camera_supported: self.camera.load(Ordering::Relaxed),
         }
     }
 }

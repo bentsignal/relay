@@ -1,5 +1,6 @@
 //! GPU format conversion and scaling with the D3D11 video processor
-//! (BGRA -> NV12 for encoding, NV12 -> BGRA for display).
+//! (BGRA -> NV12 for encoding, NV12 -> BGRA for display, NV12 -> NV12 scaling
+//! for the virtual camera).
 
 use super::Gpu;
 use anyhow::{Context, Result};
@@ -17,8 +18,23 @@ pub struct Converter {
     pub dst: (u32, u32),
 }
 
+/// Colour spaces the converter works between.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Spaces {
+    /// Full-range sRGB in, BT.709 studio-range YCbCr out (capture -> encoder).
+    RgbToYuv,
+    /// BT.709 YCbCr in, full-range RGB out (decoder -> display).
+    YuvToRgb,
+    /// BT.709 YCbCr in and out (decoder -> virtual camera).
+    YuvToYuv,
+}
+
 impl Converter {
     pub fn new(gpu: &Gpu, src: (u32, u32), dst: (u32, u32), fps: u32, to_yuv: bool) -> Result<Self> {
+        Self::with_spaces(gpu, src, dst, fps, if to_yuv { Spaces::RgbToYuv } else { Spaces::YuvToRgb })
+    }
+
+    pub fn with_spaces(gpu: &Gpu, src: (u32, u32), dst: (u32, u32), fps: u32, spaces: Spaces) -> Result<Self> {
         let vdev: ID3D11VideoDevice = gpu.device.cast().context("no video device")?;
         let vctx: ID3D11VideoContext = gpu.context.cast().context("no video context")?;
         let desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
@@ -45,10 +61,11 @@ impl Converter {
             };
             vctx.VideoProcessorSetOutputBackgroundColor(&processor, false, &black);
             if let Ok(v1) = vctx.cast::<ID3D11VideoContext1>() {
-                let (input, output) = if to_yuv {
-                    (DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709)
-                } else {
-                    (DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)
+                let (yuv, rgb) = (DXGI_COLOR_SPACE_YCBCR_STUDIO_G22_LEFT_P709, DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+                let (input, output) = match spaces {
+                    Spaces::RgbToYuv => (rgb, yuv),
+                    Spaces::YuvToRgb => (yuv, rgb),
+                    Spaces::YuvToYuv => (yuv, yuv),
                 };
                 v1.VideoProcessorSetStreamColorSpace1(&processor, 0, input);
                 v1.VideoProcessorSetOutputColorSpace1(&processor, output);

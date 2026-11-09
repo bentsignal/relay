@@ -1,5 +1,6 @@
 //! Windows video: capture, encode, decode and present.
 
+pub mod camera;
 mod capture;
 mod convert;
 pub mod decode;
