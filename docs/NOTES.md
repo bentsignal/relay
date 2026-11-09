@@ -31,3 +31,8 @@ Things that aren't obvious from the code.
 ## Environment switches (development)
 
 `RELAY_DATA_DIR`, `RELAY_IPC_NAME`, `RELAY_NET_PORT`, `RELAY_NO_VIRTUAL`, `RELAY_NO_TRAY`, `RELAY_INSTALL_ROOT`, `RELAY_UPDATE_BASE`, `RELAY_DEBUG_PIPES`, `RELAY_LOG`. Together they let two engines run side by side on one machine for network tests.
+
+## CI
+
+- A dev build whose workflow file differs from `main`'s current one can't publish: GitHub won't let the workflow token create a tag on that commit ("HTTP 403: Resource not accessible by integration"). This only happens when `.github/workflows` changed while the build was running; the next build publishes normally.
+- Pending runs on `main` replace each other, so a burst of pushes produces one build of the latest commit.
