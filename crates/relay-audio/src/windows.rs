@@ -89,3 +89,150 @@ pub fn set_default_endpoint(endpoint_id: &str) -> Result<()> {
     let _ = IUnknown::IID;
     result
 }
+
+// ---------------------------------------------------------------- apps
+
+use crate::DeviceStream;
+use relay_mixer::{PipeReader, pipe};
+use relay_proto::AppInfo;
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::System::Diagnostics::ToolHelp::{
+    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+};
+
+struct Proc {
+    pid: u32,
+    parent: u32,
+    exe: String,
+}
+
+fn processes() -> Vec<Proc> {
+    let mut out = Vec::new();
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else { return out };
+        let mut e = PROCESSENTRY32W { dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32, ..Default::default() };
+        if Process32FirstW(snap, &mut e).is_ok() {
+            loop {
+                let len = e.szExeFile.iter().position(|c| *c == 0).unwrap_or(e.szExeFile.len());
+                out.push(Proc {
+                    pid: e.th32ProcessID,
+                    parent: e.th32ParentProcessID,
+                    exe: String::from_utf16_lossy(&e.szExeFile[..len]),
+                });
+                if Process32NextW(snap, &mut e).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(HANDLE(snap.0));
+    }
+    out
+}
+
+/// The top-most process of an app (e.g. the main chrome.exe, not its helpers).
+fn root_pid(exe: &str, procs: &[Proc]) -> Option<u32> {
+    let by_pid: HashMap<u32, &Proc> = procs.iter().map(|p| (p.pid, p)).collect();
+    procs
+        .iter()
+        .filter(|p| p.exe.eq_ignore_ascii_case(exe))
+        .find(|p| by_pid.get(&p.parent).map(|parent| !parent.exe.eq_ignore_ascii_case(exe)).unwrap_or(true))
+        .map(|p| p.pid)
+}
+
+fn pretty(exe: &str) -> String {
+    let base = exe.trim_end_matches(".exe").trim_end_matches(".EXE");
+    let mut c = base.chars();
+    match c.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+        None => exe.to_string(),
+    }
+}
+
+/// Apps that currently have an audio session on any playback device.
+pub fn list_apps() -> Vec<AppInfo> {
+    let _ = wasapi::initialize_mta();
+    let procs = processes();
+    let names: HashMap<u32, &str> = procs.iter().map(|p| (p.pid, p.exe.as_str())).collect();
+    let me = std::process::id();
+    let mut seen = std::collections::BTreeMap::new();
+    let Ok(enumerator) = wasapi::DeviceEnumerator::new() else { return Vec::new() };
+    let Ok(devices) = enumerator.get_device_collection(wasapi::Direction::Render) else { return Vec::new() };
+    for dev in &devices {
+        let Ok(dev) = dev else { continue };
+        let Ok(manager) = dev.get_iaudiosessionmanager() else { continue };
+        let Ok(sessions) = manager.get_audiosessionenumerator() else { continue };
+        for i in 0..sessions.get_count().unwrap_or(0) {
+            let Ok(ctl) = sessions.get_session(i) else { continue };
+            if ctl.get_state().map(|s| s == wasapi::SessionState::Expired).unwrap_or(true) {
+                continue;
+            }
+            let Ok(pid) = ctl.get_process_id() else { continue };
+            if pid == 0 || pid == me {
+                continue;
+            }
+            if let Some(exe) = names.get(&pid) {
+                let key = exe.to_ascii_lowercase();
+                seen.entry(key).or_insert(AppInfo { pid, process: exe.to_string(), name: pretty(exe) });
+            }
+        }
+    }
+    seen.into_values().collect()
+}
+
+/// Captures one app's audio (and its child processes) with WASAPI process loopback.
+pub fn open_app(exe: &str) -> anyhow::Result<(DeviceStream, PipeReader)> {
+    let pid = root_pid(exe, &processes()).ok_or_else(|| anyhow!("{exe} isn't running"))?;
+    let rate = 48000;
+    let (mut writer, reader) = pipe(rate, rate as usize / 2);
+    let shared = writer.shared().clone();
+    let stop = Arc::new(AtomicBool::new(false));
+    let failed = Arc::new(AtomicBool::new(false));
+    let (stop2, failed2) = (stop.clone(), failed.clone());
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<anyhow::Result<()>>();
+    let name = exe.to_string();
+    std::thread::Builder::new().name(format!("relay-app-{exe}")).spawn(move || {
+        let mut run = || -> anyhow::Result<()> {
+            let _ = wasapi::initialize_mta();
+            let format = wasapi::WaveFormat::new(32, 32, wasapi::SampleType::Float, rate as usize, 2, None);
+            let mut client =
+                wasapi::AudioClient::new_application_loopback_client(pid, true).map_err(|e| anyhow!("{e}"))?;
+            let mode = wasapi::StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: 0 };
+            client.initialize_client(&format, wasapi::Direction::Capture, mode, None).map_err(|e| anyhow!("{e}"))?;
+            let event = client.set_get_eventhandle().map_err(|e| anyhow!("{e}"))?;
+            let capture = client.get_audiocaptureclient().map_err(|e| anyhow!("{e}"))?;
+            client.start_stream().map_err(|e| anyhow!("{e}"))?;
+            let _ = ready_tx.send(Ok(()));
+            let mut bytes = std::collections::VecDeque::new();
+            let mut floats: Vec<f32> = Vec::with_capacity(8192);
+            while !stop2.load(Ordering::Relaxed) {
+                if event.wait_for_event(200).is_err() {
+                    continue; // silence: the app isn't playing right now
+                }
+                capture.read_from_device_to_deque(&mut bytes).map_err(|e| anyhow!("{e}"))?;
+                floats.clear();
+                while bytes.len() >= 4 {
+                    let b = [
+                        bytes.pop_front().unwrap(),
+                        bytes.pop_front().unwrap(),
+                        bytes.pop_front().unwrap(),
+                        bytes.pop_front().unwrap(),
+                    ];
+                    floats.push(f32::from_le_bytes(b));
+                }
+                writer.write_interleaved(&floats);
+            }
+            let _ = client.stop_stream();
+            Ok(())
+        };
+        if let Err(e) = run() {
+            tracing::info!("app capture for {name} ended: {e:#}");
+            failed2.store(true, Ordering::Relaxed);
+            let _ = ready_tx.send(Err(e));
+        }
+    })?;
+    ready_rx.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| anyhow!("app capture didn't start"))??;
+    Ok((DeviceStream::from_thread(stop, exe.to_string(), rate, shared, failed), reader))
+}

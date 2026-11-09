@@ -61,8 +61,22 @@ fn find(key: &str) -> Result<cpal::Device> {
 }
 
 /// A running device stream. Dropping it stops the stream.
+pub enum StreamInner {
+    Cpal(cpal::Stream),
+    /// A capture thread we own; dropping sets the flag and the thread exits.
+    Thread(Arc<AtomicBool>),
+}
+
+impl Drop for StreamInner {
+    fn drop(&mut self) {
+        if let StreamInner::Thread(stop) = self {
+            stop.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
 pub struct DeviceStream {
-    _stream: cpal::Stream,
+    _stream: StreamInner,
     pub name: String,
     pub rate: u32,
     pub channels: u16,
@@ -71,6 +85,16 @@ pub struct DeviceStream {
 }
 
 impl DeviceStream {
+    pub fn from_thread(
+        stop: Arc<AtomicBool>,
+        name: String,
+        rate: u32,
+        pipe: Arc<PipeShared>,
+        failed: Arc<AtomicBool>,
+    ) -> Self {
+        Self { _stream: StreamInner::Thread(stop), name, rate, channels: 2, pipe, failed }
+    }
+
     /// True once the backend has reported the device gone or broken.
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
@@ -171,7 +195,17 @@ fn open_capture(device: cpal::Device, loopback: bool) -> Result<(DeviceStream, P
         None,
     )?;
     stream.play()?;
-    Ok((DeviceStream { _stream: stream, name, rate, channels: config.channels, pipe: shared, failed }, reader))
+    Ok((
+        DeviceStream {
+            _stream: StreamInner::Cpal(stream),
+            name,
+            rate,
+            channels: config.channels,
+            pipe: shared,
+            failed,
+        },
+        reader,
+    ))
 }
 
 /// Opens a capture device (microphone, line in...).
@@ -210,5 +244,15 @@ pub fn open_output(key: &str) -> Result<(DeviceStream, PipeWriter)> {
         None,
     )?;
     stream.play()?;
-    Ok((DeviceStream { _stream: stream, name, rate, channels: config.channels, pipe: shared, failed }, writer))
+    Ok((
+        DeviceStream {
+            _stream: StreamInner::Cpal(stream),
+            name,
+            rate,
+            channels: config.channels,
+            pipe: shared,
+            failed,
+        },
+        writer,
+    ))
 }

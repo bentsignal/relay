@@ -1113,6 +1113,9 @@ impl RelayApp {
                 items.push((d.name.clone().into(), Source::Device { key: d.key.clone(), name: d.name.clone() }));
             }
             items.push(("Relay (apps playing to Relay)".into(), Source::Virtual { index: 0 }));
+            for app in &s.apps {
+                items.push((app.name.clone().into(), Source::App { process: app.process.clone() }));
+            }
             for d in s.devices.outputs.iter().filter(|d| !d.is_relay) {
                 items.push((
                     format!("{} (everything playing)", d.name).into(),
@@ -1293,7 +1296,7 @@ fn source_label(src: &Source) -> String {
         Source::Device { name, .. } => name.clone(),
         Source::Loopback { name, .. } => format!("{name} (all)"),
         Source::Virtual { .. } => "Relay".into(),
-        Source::App { process } => process.clone(),
+        Source::App { process } => process.trim_end_matches(".exe").to_string(),
         Source::Network { .. } => "Network".into(),
         Source::None => "Choose input".into(),
     }

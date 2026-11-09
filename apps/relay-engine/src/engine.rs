@@ -48,6 +48,7 @@ pub struct Engine {
     cpu: (u64, u64, Instant, f32),
     defaults_applied: bool,
     pub network: Network,
+    pub apps: Vec<AppInfo>,
     pub video: Video,
     pub update: Update,
     updater: crate::updates::Updater,
@@ -92,6 +93,7 @@ impl Engine {
             cpu: (0, 0, Instant::now(), 0.0),
             defaults_applied: false,
             network: Network::default(),
+            apps: Vec::new(),
             video: Video::default(),
             update: Update::default(),
             updater: crate::updates::Updater::start(channel),
@@ -154,6 +156,11 @@ impl Engine {
                 Some(r) => bridged(r, BridgeTuning::network()),
                 None => (Box::new(Silence), Live::None),
             },
+            #[cfg(windows)]
+            Source::App { process } => match relay_audio::windows::open_app(process) {
+                Ok((stream, reader)) => (Box::new(InputBridge::new(reader, tuning)), Live::Device(stream)),
+                Err(_) => (Box::new(Silence), Live::None),
+            },
             Source::App { .. } | Source::None => (Box::new(Silence), Live::None),
         }
     }
@@ -192,7 +199,7 @@ impl Engine {
             Source::Device { name, .. } | Source::Loopback { name, .. } => format!("{name} isn't connected"),
             Source::Virtual { .. } => "Relay's devices aren't ready".into(),
             Source::Network { .. } => "Not receiving".into(),
-            Source::App { process } => format!("{process} isn't playing"),
+            Source::App { process } => format!("{} isn't running", process.trim_end_matches(".exe")),
             Source::None => String::new(),
         }
     }
@@ -246,7 +253,6 @@ impl Engine {
         let (source, live) = self.open_source(&strip.source);
         let status = match &strip.source {
             Source::None => PortStatus::Idle,
-            Source::App { .. } => PortStatus::Error("App capture is coming soon".into()),
             s => status_of(&live, &self.source_missing_text(s)),
         };
         let mask = self.route_mask(&strip.routes);
@@ -622,8 +628,8 @@ impl Engine {
             let Some(p) = self.strips.get(&id) else { continue };
             let retry = p.live.failed()
                 || (matches!(p.live, Live::None)
-                    && !matches!(src, Source::None | Source::App { .. })
-                    && (devices_changed || virt_changed || matches!(src, Source::Network { .. })));
+                    && !matches!(src, Source::None)
+                    && (devices_changed || virt_changed || matches!(src, Source::Network { .. } | Source::App { .. })));
             if retry {
                 self.build_strip(id);
                 self.dirty = true;
@@ -647,6 +653,14 @@ impl Engine {
         }
         self.apply_relay_defaults();
         self.refresh_video();
+        #[cfg(windows)]
+        {
+            let apps = relay_audio::windows::list_apps();
+            if apps != self.apps {
+                self.apps = apps;
+                self.dirty = true;
+            }
+        }
 
         // Engine load.
         let m = self.graph.meters();
@@ -874,7 +888,7 @@ impl Engine {
             version: crate::VERSION.to_string(),
             mixer,
             devices: self.devices.clone(),
-            apps: Vec::new(),
+            apps: self.apps.clone(),
             virtual_audio: VirtualAudio {
                 state: self.virt.state(),
                 is_default: self.cfg.relay_default && self.defaults_applied,
