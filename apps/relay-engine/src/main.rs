@@ -6,6 +6,7 @@
 mod config;
 mod denoise;
 mod engine;
+mod firewall;
 mod ipc;
 mod paths;
 #[cfg(windows)]

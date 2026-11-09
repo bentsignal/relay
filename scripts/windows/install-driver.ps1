@@ -44,7 +44,7 @@ try {
 
     Get-NetFirewallRule -DisplayName 'Relay (LAN)' -ErrorAction SilentlyContinue | Remove-NetFirewallRule
     New-NetFirewallRule -DisplayName 'Relay (LAN)' -Direction Inbound -Protocol UDP -LocalPort 47800,47801,5353 `
-        -Profile Private,Domain -Action Allow | Out-Null
+        -Profile Any -Action Allow | Out-Null
     "Firewall rule added" | Out-File $log -Append
     "OK" | Out-File $log -Append
     exit 0

@@ -798,6 +798,22 @@ impl RelayApp {
                     .child(SharedString::from(p.clone())),
             );
         }
+        if net.enabled && net.firewall_blocked {
+            list = list.child(
+                div()
+                    .flex()
+                    .gap(px(8.0))
+                    .items_center()
+                    .text_size(px(12.0))
+                    .text_color(t.warn)
+                    .child(dot(t.warn))
+                    .child(div().flex_1().child("Windows Firewall is blocking Relay"))
+                    .child(
+                        button("fix-fw", "Fix", &t)
+                            .on_click(cx.listener(|this, _, _, _| this.cmd(Command::FixFirewall))),
+                    ),
+            );
+        }
         if net.enabled && net.peers.is_empty() && net.problem.is_none() {
             list = list.child(muted("Looking for devices…", &t).text_size(px(12.0)));
         }

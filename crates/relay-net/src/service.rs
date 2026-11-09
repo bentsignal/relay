@@ -23,17 +23,38 @@ pub struct NetConfig {
     pub name: String,
     pub version: String,
     pub port: u16,
-    /// (id, name) of devices the user already allowed.
-    pub paired: Vec<(String, String)>,
+    /// (id, name, last known addresses) of devices the user already allowed.
+    pub paired: Vec<(String, String, Vec<String>)>,
 }
 
 #[derive(Debug)]
 pub enum NetEvent {
-    Peers { peers: Vec<Peer>, problem: Option<String> },
-    Paired { id: String, name: String },
-    Unpaired { id: String },
-    IncomingStream { peer: String, stream: u32, kind: StreamKind, name: String },
-    StreamEnded { peer: String, stream: u32 },
+    Peers {
+        peers: Vec<Peer>,
+        problem: Option<String>,
+    },
+    Paired {
+        id: String,
+        name: String,
+    },
+    /// Where a paired device was last reachable (persist for quick reconnects).
+    PeerAddrs {
+        id: String,
+        addrs: Vec<String>,
+    },
+    Unpaired {
+        id: String,
+    },
+    IncomingStream {
+        peer: String,
+        stream: u32,
+        kind: StreamKind,
+        name: String,
+    },
+    StreamEnded {
+        peer: String,
+        stream: u32,
+    },
 }
 
 struct PeerEntry {
@@ -52,6 +73,7 @@ struct PeerEntry {
     decision: Option<oneshot::Sender<bool>>,
     dialing: bool,
     lost_at: Option<Instant>,
+    last_dial: Option<Instant>,
     incoming: Vec<RemoteStream>,
     stats: LinkStats,
     counters: (u64, u64, u64, u64, Instant),
@@ -75,6 +97,7 @@ impl PeerEntry {
             decision: None,
             dialing: false,
             lost_at: None,
+            last_dial: None,
             incoming: Vec::new(),
             stats: LinkStats::default(),
             counters: (0, 0, 0, 0, Instant::now()),
@@ -167,9 +190,10 @@ impl NetHandle {
         let port = endpoint.local_addr()?.port();
         let (tx, rx) = unbounded();
         let mut peers = HashMap::new();
-        for (id, name) in cfg.paired {
+        for (id, name, addrs) in cfg.paired {
             let mut p = PeerEntry::new(id.clone());
             p.name = name;
+            p.addrs = addrs.iter().filter_map(|a| a.parse().ok()).collect();
             p.paired = true;
             p.state = LinkState::Offline;
             peers.insert(id, p);
@@ -679,7 +703,9 @@ async fn handle_incoming(shared: Arc<Shared>, incoming: quinn::Incoming) -> anyh
         let p = peers.entry(peer.clone()).or_insert_with(|| PeerEntry::new(peer.clone()));
         let addr = conn.remote_address();
         if !p.addrs.contains(&addr) && addr.port() != 0 {
-            // Remote port is ephemeral; keep only discovered listen addresses for dialing.
+            // Peers dial from their listening socket, so this is where they can be reached.
+            p.addrs.retain(|a| a.ip() != addr.ip());
+            p.addrs.insert(0, addr);
         }
         p.last_seen.get_or_insert_with(Instant::now);
     }
@@ -763,6 +789,9 @@ async fn session(
         p.counters = (0, 0, 0, 0, Instant::now());
     }
     tracing::info!(%peer, "connected");
+    let addrs: Vec<String> =
+        shared.peers.lock().get(&peer).map(|p| p.addrs.iter().map(|a| a.to_string()).collect()).unwrap_or_default();
+    let _ = shared.events.send(NetEvent::PeerAddrs { id: peer.clone(), addrs });
     emit_peers(&shared);
 
     // Announce every stream we already send to this peer.
@@ -1021,9 +1050,23 @@ async fn housekeeping(shared: Arc<Shared>, seen: CbReceiver<Seen>) {
                 }
                 // Paired devices reconnect on their own. The lower ID dials;
                 // the other side steps in if that hasn't happened for a while.
-                if p.paired && p.conn.is_none() && !p.dialing && recent && !matches!(p.state, LinkState::Refused(_)) {
+                // Paired devices reconnect on their own, also at their last known
+                // address when discovery can't see them (e.g. multicast is
+                // filtered). Both ends dialing also gets through firewalls that
+                // only admit replies.
+                let reachable = recent || !p.addrs.is_empty();
+                let due =
+                    p.last_dial.map(|t| t.elapsed() > Duration::from_secs(if recent { 2 } else { 5 })).unwrap_or(true);
+                if p.paired
+                    && p.conn.is_none()
+                    && !p.dialing
+                    && reachable
+                    && due
+                    && !matches!(p.state, LinkState::Refused(_))
+                {
                     let waited = p.lost_at.map(|t| t.elapsed() > Duration::from_secs(6)).unwrap_or(true);
-                    if me < p.id || waited {
+                    if me < p.id || waited || !recent {
+                        p.last_dial = Some(Instant::now());
                         to_dial.push(p.id.clone());
                     }
                 }

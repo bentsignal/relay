@@ -6,6 +6,8 @@ use std::path::Path;
 pub struct PairedPeer {
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub addrs: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

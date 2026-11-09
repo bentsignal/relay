@@ -12,7 +12,7 @@ use relay_proto::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 enum Live {
     None,
@@ -54,6 +54,8 @@ pub struct Engine {
     updater: crate::updates::Updater,
     pub quit: bool,
     video_mgr: crate::video::VideoMgr,
+    firewall_fix: Option<std::process::Child>,
+    firewall_checked: Option<Instant>,
     pub net: Option<relay_net::NetHandle>,
     net_events: Option<crossbeam_channel::Receiver<relay_net::NetEvent>>,
 }
@@ -99,6 +101,8 @@ impl Engine {
             updater: crate::updates::Updater::start(channel),
             quit: false,
             video_mgr: crate::video::VideoMgr::default(),
+            firewall_fix: None,
+            firewall_checked: None,
             net: None,
             net_events: None,
         };
@@ -462,6 +466,10 @@ impl Engine {
                 }
                 self.changed();
             }
+            Command::FixFirewall => match crate::firewall::fix() {
+                Ok(child) => self.firewall_fix = Some(child),
+                Err(e) => self.notices.push((format!("Couldn't start the fix: {e}"), true)),
+            },
             Command::InstallVirtualAudio => {
                 if let Err(e) = self.virt.install() {
                     self.notices.push((format!("Couldn't start the installer: {e}"), true));
@@ -662,6 +670,23 @@ impl Engine {
         }
         self.apply_relay_defaults();
         self.refresh_video();
+        let fix_done = match self.firewall_fix.as_mut().map(|c| c.try_wait()) {
+            Some(Ok(Some(_))) | Some(Err(_)) => {
+                self.firewall_fix = None;
+                true
+            }
+            _ => false,
+        };
+        if self.net.is_some()
+            && (fix_done || self.firewall_checked.map(|t| t.elapsed() > Duration::from_secs(60)).unwrap_or(true))
+        {
+            self.firewall_checked = Some(Instant::now());
+            let blocked = crate::firewall::blocked();
+            if blocked != self.network.firewall_blocked {
+                self.network.firewall_blocked = blocked;
+                self.dirty = true;
+            }
+        }
         #[cfg(windows)]
         {
             let apps = relay_audio::windows::list_apps();
@@ -716,7 +741,7 @@ impl Engine {
             name: self.cfg.device_name.clone(),
             version: crate::VERSION.to_string(),
             port,
-            paired: self.cfg.peers.iter().map(|p| (p.id.clone(), p.name.clone())).collect(),
+            paired: self.cfg.peers.iter().map(|p| (p.id.clone(), p.name.clone(), p.addrs.clone())).collect(),
         };
         match relay_net::NetHandle::start(cfg) {
             Ok((net, events)) => {
@@ -793,9 +818,18 @@ impl Engine {
                     }
                 }
                 relay_net::NetEvent::Paired { id, name } => {
+                    let addrs = self.cfg.peers.iter().find(|p| p.id == id).map(|p| p.addrs.clone()).unwrap_or_default();
                     self.cfg.peers.retain(|p| p.id != id);
-                    self.cfg.peers.push(crate::config::PairedPeer { id, name });
+                    self.cfg.peers.push(crate::config::PairedPeer { id, name, addrs });
                     self.changed();
+                }
+                relay_net::NetEvent::PeerAddrs { id, addrs } => {
+                    if let Some(p) = self.cfg.peers.iter_mut().find(|p| p.id == id)
+                        && p.addrs != addrs
+                    {
+                        p.addrs = addrs;
+                        self.save_due = true;
+                    }
                 }
                 relay_net::NetEvent::Unpaired { id } => {
                     self.cfg.peers.retain(|p| p.id != id);

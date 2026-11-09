@@ -287,6 +287,9 @@ pub struct Network {
     pub problem: Option<String>,
     pub port: u16,
     pub peers: Vec<Peer>,
+    /// Windows Firewall has no rule for Relay, so other devices can't reach this one.
+    #[serde(default)]
+    pub firewall_blocked: bool,
 }
 
 // ------------------------------------------------------------------ Video
@@ -425,38 +428,108 @@ pub struct Meters {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
-    AddStrip { source: Source },
-    RemoveStrip { id: StripId },
-    SetStripSource { id: StripId, source: Source },
-    SetStripName { id: StripId, name: String },
-    SetStripGain { id: StripId, gain_db: f32 },
-    SetStripMute { id: StripId, mute: bool },
-    SetRoute { strip: StripId, bus: BusId, on: bool },
-    SetStripEffects { id: StripId, effects: Effects },
+    AddStrip {
+        source: Source,
+    },
+    RemoveStrip {
+        id: StripId,
+    },
+    SetStripSource {
+        id: StripId,
+        source: Source,
+    },
+    SetStripName {
+        id: StripId,
+        name: String,
+    },
+    SetStripGain {
+        id: StripId,
+        gain_db: f32,
+    },
+    SetStripMute {
+        id: StripId,
+        mute: bool,
+    },
+    SetRoute {
+        strip: StripId,
+        bus: BusId,
+        on: bool,
+    },
+    SetStripEffects {
+        id: StripId,
+        effects: Effects,
+    },
 
-    AddBus { sink: Sink },
-    RemoveBus { id: BusId },
-    SetBusSink { id: BusId, sink: Sink },
-    SetBusName { id: BusId, name: String },
-    SetBusGain { id: BusId, gain_db: f32 },
-    SetBusMute { id: BusId, mute: bool },
-    SetBusEffects { id: BusId, effects: Effects },
+    AddBus {
+        sink: Sink,
+    },
+    RemoveBus {
+        id: BusId,
+    },
+    SetBusSink {
+        id: BusId,
+        sink: Sink,
+    },
+    SetBusName {
+        id: BusId,
+        name: String,
+    },
+    SetBusGain {
+        id: BusId,
+        gain_db: f32,
+    },
+    SetBusMute {
+        id: BusId,
+        mute: bool,
+    },
+    SetBusEffects {
+        id: BusId,
+        effects: Effects,
+    },
 
     InstallVirtualAudio,
-    MakeRelayDefault { on: bool },
+    /// Runs the one-time admin step that lets Relay through the firewall.
+    FixFirewall,
+    MakeRelayDefault {
+        on: bool,
+    },
 
-    SetNetworkEnabled { on: bool },
-    SetDeviceName { name: String },
-    Connect { peer: PeerId },
-    AcceptPeer { peer: PeerId },
-    RejectPeer { peer: PeerId },
-    ForgetPeer { peer: PeerId },
+    SetNetworkEnabled {
+        on: bool,
+    },
+    SetDeviceName {
+        name: String,
+    },
+    Connect {
+        peer: PeerId,
+    },
+    AcceptPeer {
+        peer: PeerId,
+    },
+    RejectPeer {
+        peer: PeerId,
+    },
+    ForgetPeer {
+        peer: PeerId,
+    },
 
-    StartVideo { source: String, peer: PeerId, with_audio: bool },
-    StopVideo { id: u32 },
-    SetVideoCamera { peer: PeerId, stream: u32, on: bool },
+    StartVideo {
+        source: String,
+        peer: PeerId,
+        with_audio: bool,
+    },
+    StopVideo {
+        id: u32,
+    },
+    SetVideoCamera {
+        peer: PeerId,
+        stream: u32,
+        on: bool,
+    },
 
-    SetChannel { channel: Channel },
+    SetChannel {
+        channel: Channel,
+    },
     CheckForUpdates,
     ApplyUpdate,
 
