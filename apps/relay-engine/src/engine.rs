@@ -401,7 +401,7 @@ impl Engine {
                 self.changed();
             }
             Command::AddBus { sink } => {
-                let name = sink_name(&sink);
+                let name = self.sink_display_name(&sink);
                 let bus = self.cfg.new_bus(name, sink);
                 let id = bus.id;
                 self.cfg.mixer.buses.push(bus);
@@ -605,6 +605,20 @@ impl Engine {
             }
             // Network, video and update commands are routed by main before reaching here.
             _ => {}
+        }
+    }
+
+    /// Like `sink_name`, but names network sends after the device they go to.
+    fn sink_display_name(&self, sink: &Sink) -> String {
+        match sink {
+            Sink::Network { peer } => self
+                .network
+                .peers
+                .iter()
+                .find(|p| &p.id == peer)
+                .map(|p| format!("To {}", p.name))
+                .unwrap_or_else(|| sink_name(sink)),
+            other => sink_name(other),
         }
     }
 
