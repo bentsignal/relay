@@ -257,6 +257,16 @@ impl NetHandle {
         }
     }
 
+    /// Connects to a device by address (fallback when discovery can't see it).
+    pub fn connect_addr(&self, addr: SocketAddr) {
+        let shared = self.shared.clone();
+        self.rt.spawn(async move {
+            if let Err(e) = dial_addr(shared, addr).await {
+                tracing::info!(%addr, "connect by address failed: {e:#}");
+            }
+        });
+    }
+
     /// User asked to connect to (and pair with) a device.
     pub fn connect(&self, peer: &str) {
         let shared = self.shared.clone();
@@ -683,6 +693,31 @@ async fn dial_inner(shared: &Arc<Shared>, peer: &str, addrs: &[SocketAddr]) -> a
         }
     }
     Err(last_err)
+}
+
+/// Connects to an address without knowing which device is there (a fallback
+/// for networks where discovery can't see it). Trust still requires the other
+/// side to allow the connection.
+async fn dial_addr(shared: Arc<Shared>, addr: SocketAddr) -> anyhow::Result<()> {
+    let cfg = tls::client_config(&shared.me, None)?;
+    let connecting = shared.endpoint.connect_with(cfg, addr, "relay")?;
+    let conn = tokio::time::timeout(Duration::from_secs(3), connecting).await??;
+    let peer = tls::peer_id(&conn).ok_or_else(|| anyhow::anyhow!("no peer certificate"))?;
+    {
+        let mut peers = shared.peers.lock();
+        let p = peers.entry(peer.clone()).or_insert_with(|| PeerEntry::new(peer.clone()));
+        if !p.addrs.contains(&addr) {
+            p.addrs.insert(0, addr);
+        }
+        p.last_seen = Some(Instant::now());
+        if p.conn.is_some() {
+            conn.close(0u32.into(), b"duplicate");
+            return Ok(());
+        }
+    }
+    conn.close(0u32.into(), b"probe");
+    dial(shared, peer).await;
+    Ok(())
 }
 
 async fn accept_loop(shared: Arc<Shared>) {

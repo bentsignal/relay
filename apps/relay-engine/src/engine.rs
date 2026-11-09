@@ -858,6 +858,12 @@ impl Engine {
                 self.network.this_id = net.id();
                 self.network.port = net.port();
                 self.network.problem = None;
+                // Hidden fallback for networks where discovery can't see a device.
+                if let Ok(hints) = std::env::var("RELAY_PEER_HINT") {
+                    for h in hints.split(',').filter_map(|h| h.trim().parse().ok()) {
+                        net.connect_addr(h);
+                    }
+                }
                 self.net = Some(net);
                 self.net_events = Some(events);
                 self.rebuild_network_ports();
