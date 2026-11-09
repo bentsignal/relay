@@ -15,6 +15,7 @@ relay-dsp = { workspace = true }
 relay-mixer = { workspace = true }
 relay-audio = { workspace = true }
 relay-ipc = { workspace = true }
+relay-net = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

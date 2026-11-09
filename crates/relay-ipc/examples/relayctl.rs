@@ -6,6 +6,10 @@ fn main() -> std::io::Result<()> {
     let secs: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(5);
     let (client, rx) = relay_ipc::Client::connect("relayctl")?;
     client.send(&ClientMsg::Meters { on: true })?;
+    if let Some(cmd) = std::env::args().nth(2) {
+        let cmd: relay_proto::Command = serde_json::from_str(&cmd).expect("command json");
+        client.send(&ClientMsg::Command(cmd))?;
+    }
     let start = Instant::now();
     let mut last_meter = Instant::now();
     while start.elapsed() < Duration::from_secs(secs) {
@@ -20,6 +24,13 @@ fn main() -> std::io::Result<()> {
                 }
                 for b in &s.mixer.buses {
                     println!("  bus {} {:?} {:?}", b.name, b.sink, b.status);
+                }
+                println!("  net me={} port={} problem={:?}", s.network.this_id, s.network.port, s.network.problem);
+                for p in &s.network.peers {
+                    println!(
+                        "  peer {} {} {:?} paired={} addrs={:?} rtt={:.1} incoming={:?}",
+                        p.id, p.name, p.state, p.paired, p.addresses, p.stats.rtt_ms, p.incoming
+                    );
                 }
             }
             Ok(ServerMsg::Meters(m)) if last_meter.elapsed() > Duration::from_millis(500) => {

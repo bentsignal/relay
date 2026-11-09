@@ -138,6 +138,7 @@ fn control_loop(engine: &mut Engine, rx: Receiver<Event>, _tx: Sender<Event>) {
                 engine.tick();
             }
         }
+        engine.poll_network();
         for (text, error) in engine.notices.drain(..) {
             for c in &clients {
                 c.send(ServerMsg::Notice { text: text.clone(), error });

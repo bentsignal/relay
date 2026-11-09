@@ -46,6 +46,15 @@ impl SourcePort for Silence {
     }
 }
 
+/// Writes straight into a pipe whose reader runs on the mixer clock (e.g. a
+/// network encoder), so no drift correction is needed.
+pub struct DirectSink(pub crate::pipe::PipeWriter);
+impl SinkPort for DirectSink {
+    fn write(&mut self, left: &[f32], right: &[f32]) {
+        self.0.write_planar(left, right);
+    }
+}
+
 pub struct Discard;
 impl SinkPort for Discard {
     fn write(&mut self, _: &[f32], _: &[f32]) {}

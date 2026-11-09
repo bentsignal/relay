@@ -11,6 +11,9 @@ use std::sync::Arc;
 
 /// The engine's socket name, unique per OS user.
 pub fn socket_name() -> String {
+    if let Ok(name) = std::env::var("RELAY_IPC_NAME") {
+        return name;
+    }
     let user = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "user".into());
     let user: String = user.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     format!("relay-engine-{user}.sock")

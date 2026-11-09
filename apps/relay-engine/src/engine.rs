@@ -31,12 +31,6 @@ struct PortRt {
     live: Live,
 }
 
-/// Network hooks the engine calls into; implemented by the network service.
-pub trait NetworkPorts {
-    fn source(&mut self, peer: &str, stream: u32) -> Option<relay_mixer::PipeReader>;
-    fn sink(&mut self, peer: &str) -> Option<relay_mixer::PipeWriter>;
-}
-
 pub struct Engine {
     pub cfg: Config,
     graph: GraphHandle,
@@ -56,7 +50,8 @@ pub struct Engine {
     pub network: Network,
     pub video: Video,
     pub update: Update,
-    pub net_ports: Option<Box<dyn NetworkPorts + Send>>,
+    pub net: Option<relay_net::NetHandle>,
+    net_events: Option<crossbeam_channel::Receiver<relay_net::NetEvent>>,
 }
 
 fn status_of(live: &Live, missing: &str) -> PortStatus {
@@ -95,10 +90,12 @@ impl Engine {
             network: Network::default(),
             video: Video::default(),
             update: Update::default(),
-            net_ports: None,
+            net: None,
+            net_events: None,
         };
         e.update.channel = e.cfg.channel;
         e.update.current = crate::VERSION.to_string();
+        e.start_network();
         e.rebuild_all();
         Ok(e)
     }
@@ -142,7 +139,7 @@ impl Engine {
                 Some(r) => bridged(r, tuning),
                 None => (Box::new(Silence), Live::None),
             },
-            Source::Network { peer, stream } => match self.net_ports.as_mut().and_then(|n| n.source(peer, *stream)) {
+            Source::Network { peer, stream } => match self.net.as_ref().map(|n| n.open_source(peer, *stream)) {
                 Some(r) => bridged(r, BridgeTuning::network()),
                 None => (Box::new(Silence), Live::None),
             },
@@ -150,9 +147,9 @@ impl Engine {
         }
     }
 
-    fn open_sink(&mut self, sink: &Sink) -> (Box<dyn SinkPort>, Live) {
+    fn open_sink(&mut self, bus: &Bus) -> (Box<dyn SinkPort>, Live) {
         let tuning = BridgeTuning::device();
-        match sink {
+        match &bus.sink {
             Sink::Device { key, .. } => match relay_audio::open_output(key) {
                 Ok((stream, writer)) => (Box::new(OutputBridge::new(writer, tuning)), Live::Device(stream)),
                 Err(e) => {
@@ -167,11 +164,11 @@ impl Engine {
                 }
                 None => (Box::new(relay_mixer::Discard), Live::None),
             },
-            Sink::Network { peer } => match self.net_ports.as_mut().and_then(|n| n.sink(peer)) {
+            Sink::Network { peer } => match self.net.as_ref().map(|n| n.open_sink(peer, bus.id, &bus.name)) {
                 Some(w) => {
                     let shared = w.shared().clone();
-                    // Network senders run on the mixer clock: no drift to correct.
-                    (Box::new(OutputBridge::new(w, BridgeTuning::network())), Live::Pipe(shared))
+                    // The encoder runs on the mixer clock: no drift to correct.
+                    (Box::new(relay_mixer::DirectSink(w)), Live::Pipe(shared))
                 }
                 None => (Box::new(relay_mixer::Discard), Live::None),
             },
@@ -207,7 +204,13 @@ impl Engine {
                 None => return,
             },
         };
-        let (sink, live) = self.open_sink(&bus.sink);
+        if let (Some(net), Some(PortRt { .. })) = (self.net.as_ref(), self.buses.get(&id)) {
+            // Rebuilding: stop any previous network send for this bus.
+            for p in self.network.peers.iter() {
+                net.close_sink(&p.id, id);
+            }
+        }
+        let (sink, live) = self.open_sink(&bus);
         let status = if matches!(bus.sink, Sink::None) {
             PortStatus::Idle
         } else {
@@ -374,6 +377,11 @@ impl Engine {
                 if let Some(p) = self.buses.remove(&id) {
                     self.send(MixerCmd::RemoveBus(p.slot));
                 }
+                if let (Some(net), Some(Sink::Network { peer })) =
+                    (self.net.as_ref(), self.cfg.mixer.buses.iter().find(|b| b.id == id).map(|b| b.sink.clone()))
+                {
+                    net.close_sink(&peer, id);
+                }
                 self.cfg.mixer.buses.retain(|b| b.id != id);
                 for s in &mut self.cfg.mixer.strips {
                     s.routes.retain(|b| *b != id);
@@ -450,12 +458,42 @@ impl Engine {
             Command::SetDeviceName { name } => {
                 let name = name.trim().to_string();
                 if !name.is_empty() {
-                    self.cfg.device_name = name;
+                    self.cfg.device_name = name.clone();
+                    if let Some(n) = &self.net {
+                        n.set_name(name);
+                    }
                     self.changed();
                 }
             }
             Command::SetNetworkEnabled { on } => {
                 self.cfg.network_enabled = on;
+                if on {
+                    self.start_network()
+                } else {
+                    self.stop_network()
+                }
+                self.changed();
+            }
+            Command::Connect { peer } => {
+                if let Some(n) = &self.net {
+                    n.connect(&peer);
+                }
+            }
+            Command::AcceptPeer { peer } => {
+                if let Some(n) = &self.net {
+                    n.accept(&peer);
+                }
+            }
+            Command::RejectPeer { peer } => {
+                if let Some(n) = &self.net {
+                    n.reject(&peer);
+                }
+            }
+            Command::ForgetPeer { peer } => {
+                if let Some(n) = &self.net {
+                    n.forget(&peer);
+                }
+                self.cfg.peers.retain(|p| p.id != peer);
                 self.changed();
             }
             // Network, video and update commands are routed by main before reaching here.
@@ -581,14 +619,160 @@ impl Engine {
         }
     }
 
+    pub fn start_network(&mut self) {
+        if self.net.is_some() || !self.cfg.network_enabled {
+            return;
+        }
+        let port = std::env::var("RELAY_NET_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(relay_net::DEFAULT_PORT);
+        let cfg = relay_net::NetConfig {
+            data_dir: crate::paths::data_dir(),
+            name: self.cfg.device_name.clone(),
+            version: crate::VERSION.to_string(),
+            port,
+            paired: self.cfg.peers.iter().map(|p| (p.id.clone(), p.name.clone())).collect(),
+        };
+        match relay_net::NetHandle::start(cfg) {
+            Ok((net, events)) => {
+                self.network.this_id = net.id();
+                self.network.port = net.port();
+                self.network.problem = None;
+                self.net = Some(net);
+                self.net_events = Some(events);
+                self.rebuild_network_ports();
+            }
+            Err(e) => {
+                tracing::error!("network failed to start: {e:#}");
+                self.network.problem = Some(format!("Network unavailable: {e}"));
+            }
+        }
+        self.dirty = true;
+    }
+
+    pub fn stop_network(&mut self) {
+        self.net = None;
+        self.net_events = None;
+        self.network.peers.clear();
+        self.network.problem = None;
+        self.rebuild_network_ports();
+        self.dirty = true;
+    }
+
+    fn rebuild_network_ports(&mut self) {
+        let buses: Vec<BusId> =
+            self.cfg.mixer.buses.iter().filter(|b| matches!(b.sink, Sink::Network { .. })).map(|b| b.id).collect();
+        for id in buses {
+            self.build_bus(id);
+        }
+        let strips: Vec<StripId> =
+            self.cfg.mixer.strips.iter().filter(|s| matches!(s.source, Source::Network { .. })).map(|s| s.id).collect();
+        for id in strips {
+            self.build_strip(id);
+        }
+    }
+
+    pub fn poll_network(&mut self) {
+        let Some(rx) = self.net_events.clone() else { return };
+        while let Ok(ev) = rx.try_recv() {
+            match ev {
+                relay_net::NetEvent::Peers { peers, problem } => {
+                    if self.network.peers != peers || self.network.problem != problem {
+                        self.network.peers = peers;
+                        self.network.problem = problem;
+                        self.dirty = true;
+                    }
+                }
+                relay_net::NetEvent::Paired { id, name } => {
+                    self.cfg.peers.retain(|p| p.id != id);
+                    self.cfg.peers.push(crate::config::PairedPeer { id, name });
+                    self.changed();
+                }
+                relay_net::NetEvent::Unpaired { id } => {
+                    self.cfg.peers.retain(|p| p.id != id);
+                    self.changed();
+                }
+                relay_net::NetEvent::IncomingStream { peer, stream, kind, name } => {
+                    if kind != StreamKind::Audio {
+                        continue;
+                    }
+                    let exists = self.cfg.mixer.strips.iter().any(
+                        |s| matches!(&s.source, Source::Network { peer: p, stream: st } if *p == peer && *st == stream),
+                    );
+                    if !exists {
+                        let peer_name = self
+                            .network
+                            .peers
+                            .iter()
+                            .find(|p| p.id == peer)
+                            .map(|p| p.name.clone())
+                            .unwrap_or_else(|| "Network".into());
+                        let label = if self.cfg.mixer.strips.iter().any(|s| s.name == peer_name) {
+                            format!("{peer_name} {name}")
+                        } else {
+                            peer_name
+                        };
+                        let routes: Vec<BusId> = self
+                            .cfg
+                            .mixer
+                            .buses
+                            .iter()
+                            .find(|b| matches!(b.sink, Sink::Device { .. }))
+                            .map(|b| vec![b.id])
+                            .unwrap_or_default();
+                        let strip = self.cfg.new_strip(label, Source::Network { peer, stream }, routes);
+                        let id = strip.id;
+                        self.cfg.mixer.strips.push(strip);
+                        self.build_strip(id);
+                        self.changed();
+                    }
+                }
+                relay_net::NetEvent::StreamEnded { .. } => {
+                    self.dirty = true;
+                }
+            }
+        }
+    }
+
+    /// Network ports are "running" only while the link to that device is up.
+    fn network_status(&self, peer: &str, receiving: Option<u32>) -> PortStatus {
+        let Some(p) = self.network.peers.iter().find(|p| p.id == peer) else {
+            return PortStatus::Missing(if self.net.is_some() {
+                "Device not found".into()
+            } else {
+                "Network is off".into()
+            });
+        };
+        match &p.state {
+            LinkState::Live => match receiving {
+                Some(stream) if !p.incoming.iter().any(|s| s.id == stream) => {
+                    PortStatus::Missing(format!("{} isn't sending", p.name))
+                }
+                _ => PortStatus::Running,
+            },
+            LinkState::Degraded(why) => PortStatus::Error(why.clone()),
+            LinkState::Lost(why) => PortStatus::Error(format!("{}: {why}", p.name)),
+            _ => PortStatus::Missing(format!("{} isn't connected", p.name)),
+        }
+    }
+
     pub fn state(&self) -> EngineState {
         let m = self.graph.meters();
         let mut network = self.network.clone();
         network.this_name = self.cfg.device_name.clone();
         network.enabled = self.cfg.network_enabled;
+        let mut mixer = self.cfg.mixer.clone();
+        for s in &mut mixer.strips {
+            if let Source::Network { peer, stream } = &s.source {
+                s.status = self.network_status(peer, Some(*stream));
+            }
+        }
+        for b in &mut mixer.buses {
+            if let Sink::Network { peer } = &b.sink {
+                b.status = self.network_status(peer, None);
+            }
+        }
         EngineState {
             version: crate::VERSION.to_string(),
-            mixer: self.cfg.mixer.clone(),
+            mixer,
             devices: self.devices.clone(),
             apps: Vec::new(),
             virtual_audio: VirtualAudio {

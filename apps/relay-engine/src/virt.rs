@@ -16,6 +16,9 @@ pub trait VirtualBackend: Send {
 }
 
 pub fn create() -> Box<dyn VirtualBackend> {
+    if std::env::var_os("RELAY_NO_VIRTUAL").is_some() {
+        return Box::new(Unsupported);
+    }
     #[cfg(windows)]
     {
         Box::new(windows::WinVirtual::new())
