@@ -769,7 +769,7 @@ impl Engine {
             }
         }
         #[cfg(windows)]
-        if self.ticks % 2 == 0
+        if self.ticks.is_multiple_of(2)
             && (self.ui_clients > 0 || self.cfg.mixer.strips.iter().any(|s| matches!(s.source, Source::App { .. })))
         {
             let apps = relay_audio::windows::list_apps();

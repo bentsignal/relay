@@ -45,7 +45,7 @@ impl TimeRing {
 
     /// Like [`write`](Self::write), multiplying every sample by `gain`.
     pub fn write_scaled(&self, start: i64, data: &[f32], gain: f32) {
-        for (i, frame) in data.chunks_exact(2).enumerate() {
+        for (i, frame) in data.as_chunks::<2>().0.iter().enumerate() {
             let t = start + i as i64;
             let s = self.slot(t);
             self.stamps[s].store(INVALID, Ordering::Relaxed);
@@ -61,7 +61,7 @@ impl TimeRing {
     /// Returns how many real frames were found.
     pub fn read(&self, start: i64, out: &mut [f32]) -> usize {
         let mut found = 0;
-        for (i, frame) in out.chunks_exact_mut(2).enumerate() {
+        for (i, frame) in out.as_chunks_mut::<2>().0.iter_mut().enumerate() {
             let t = start + i as i64;
             let s = self.slot(t);
             if self.stamps[s].load(Ordering::Acquire) == t {

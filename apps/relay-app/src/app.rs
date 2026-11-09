@@ -572,7 +572,8 @@ impl RelayApp {
         let source_label: SharedString = source_label(&s.source).into();
         let fx_on = self.fx == Some(target);
         let fx_active = fx_active(&s.effects);
-        let card = card(("strip", id as usize), &t, fx_on)
+
+        card(("strip", id as usize), &t, fx_on)
             .child(card_title(&s.name, &t))
             .child(
                 div()
@@ -640,8 +641,7 @@ impl RelayApp {
                         cx.notify();
                     },
                 ))
-            })));
-        card
+            })))
     }
 
     fn bus_card(&mut self, b: &Bus, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -900,7 +900,7 @@ impl RelayApp {
                 }
                 let video_sources = self.state.as_ref().map(|s| s.video.sources.clone()).unwrap_or_default();
                 let already =
-                    self.state.as_ref().map(|s| s.video.sending.iter().find(|v| v.peer == pid).map(|v| v.id)).flatten();
+                    self.state.as_ref().and_then(|s| s.video.sending.iter().find(|v| v.peer == pid).map(|v| v.id));
                 match already {
                     Some(vid) => {
                         actions = actions.child(
@@ -1006,7 +1006,7 @@ impl RelayApp {
             .child(format!("Loss {:.1}% · buffer {:.0} ms · glitches {}", s.loss_pct, s.buffer_ms, s.glitches))
             .child(format!("Up {:.0} kb/s · down {:.0} kb/s", s.send_kbps, s.recv_kbps))
             .child(format!("{} · Relay {}", p.addresses.join(", "), p.version))
-            .child(format!("ID {}", &p.id))
+            .child(format!("ID {}", p.id))
             .when(p.paired, |d| {
                 d.child(
                     div()

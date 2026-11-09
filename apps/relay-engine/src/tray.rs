@@ -97,7 +97,7 @@ pub fn spawn(events: Sender<Event>) {
         for (i, c) in "Relay".encode_utf16().enumerate() {
             tip[i] = c;
         }
-        let mut data = NOTIFYICONDATAW {
+        let data = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: hwnd,
             uID: 1,

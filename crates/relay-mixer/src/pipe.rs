@@ -137,7 +137,7 @@ impl PipeWriter {
             let mut i = 0usize;
             for slot in a.iter_mut().chain(b.iter_mut()) {
                 let f = i / 2;
-                slot.write(if i % 2 == 0 { left[f] } else { right[f] });
+                slot.write(if i.is_multiple_of(2) { left[f] } else { right[f] });
                 i += 1;
             }
             unsafe { chunk.commit_all() };
@@ -216,7 +216,7 @@ impl PipeReader {
             let mut i = 0usize;
             for s in a.iter().chain(b.iter()) {
                 let f = i / 2;
-                if i % 2 == 0 {
+                if i.is_multiple_of(2) {
                     left[f] = *s;
                 } else {
                     right[f] = *s;

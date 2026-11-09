@@ -345,7 +345,7 @@ impl Session {
                 let start = d.offset as usize;
                 let end = (start + d.length as usize).min(sub.data.len());
                 if start < end && active {
-                    for s in sub.data[start..end].chunks_exact(2) {
+                    for s in sub.data[start..end].as_chunks::<2>().0 {
                         pcm.push(i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0);
                     }
                 }
