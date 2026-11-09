@@ -2,7 +2,7 @@
 
 Free, open source audio and video routing for Windows and macOS. A modern replacement for VoiceMeeter that also sends audio and video between your devices on the same network.
 
-- **Virtual devices.** Apps play to *Relay* and talk into *Relay Mic*. Relay mixes everything behind them.
+- **Virtual devices.** Apps play to *Relay* and record from Relay's mic (*Line (Relay)* on Windows, so Windows doesn't apply voice processing to it). Relay mixes everything behind them.
 - **Mixer.** Inputs (mics, apps, devices, other computers) feed outputs (speakers, headphones, Relay Mic, other computers), each with EQ, gate, compressor, limiter and noise suppression.
 - **Your devices, connected.** Other computers running Relay show up on their own. Click Connect, allow it once on the other device, and they reconnect by themselves from then on. Connection health is always visible.
 - **Video.** Send a screen or camera to another device. It opens in a low-latency viewer, and on Windows it's also a webcam (*Relay Camera*) for OBS, Discord and others.

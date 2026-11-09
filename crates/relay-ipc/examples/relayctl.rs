@@ -34,6 +34,12 @@ fn main() -> std::io::Result<()> {
                     "  update {:?} channel={:?} rolled_back_from={:?}",
                     s.update.state, s.update.channel, s.update.rolled_back_from
                 );
+                for v in &s.video.sending {
+                    println!("  video-send #{} -> {} {}x{} {:.1} fps {:.0} kbps {:?}", v.id, v.peer, v.width, v.height, v.fps, v.kbps, v.status);
+                }
+                for p in &s.network.peers {
+                    println!("  link {} up {:.0} kb/s down {:.0} kb/s loss {:.1}% jitter {:.1} ms", p.name, p.stats.send_kbps, p.stats.recv_kbps, p.stats.loss_pct, p.stats.jitter_ms);
+                }
                 for p in &s.network.peers {
                     println!(
                         "  peer {} {} {:?} paired={} addrs={:?} rtt={:.1} incoming={:?}",
