@@ -116,6 +116,5 @@ pub fn spawn(events: Sender<Event>) {
             DispatchMessageW(&msg);
         }
         let _ = Shell_NotifyIconW(NIM_DELETE, &data);
-        data.hIcon = HICON::default();
     });
 }

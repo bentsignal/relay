@@ -944,6 +944,46 @@ impl RelayApp {
             }
             _ => {}
         }
+        // Video going either way, plus streams that can be (re)opened.
+        let mut media = div().flex().flex_col().gap(px(2.0)).text_size(px(11.0)).text_color(t.muted);
+        if let Some(st) = &self.state {
+            for v in st.video.sending.iter().filter(|v| v.peer == p.id) {
+                let what = st
+                    .video
+                    .sources
+                    .iter()
+                    .find(|s| s.key == v.source)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| "Video".into());
+                let line = match &v.status {
+                    PortStatus::Error(e) => format!("{what}: {e}"),
+                    _ if v.fps > 0.0 => format!("Sending {what} · {}×{} · {:.0} fps", v.width, v.height, v.fps),
+                    _ => format!("Sending {what}"),
+                };
+                media = media.child(div().child(line));
+            }
+            for inc in p.incoming.iter().filter(|s| s.kind == StreamKind::Video) {
+                let open = st.video.receiving.iter().any(|r| r.peer == p.id && r.stream == inc.id);
+                let label = if inc.name.is_empty() { "Video".to_string() } else { inc.name.clone() };
+                if open {
+                    media = media.child(div().child(format!("Showing {label}")));
+                } else {
+                    let (peer, stream) = (p.id.clone(), inc.id);
+                    media = media.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.0))
+                            .child(div().flex_1().child(format!("{label} available")))
+                            .child(button(("watch", hash(&p.id) ^ inc.id as usize), "Watch", &t).on_click(
+                                cx.listener(move |this, _, _, _| {
+                                    this.cmd(Command::WatchVideo { peer: peer.clone(), stream })
+                                }),
+                            )),
+                    );
+                }
+            }
+        }
         let s = &p.stats;
         let details = div()
             .flex()
@@ -1013,6 +1053,7 @@ impl RelayApp {
                     })),
             )
             .child(actions)
+            .child(media)
             .when(expanded, |d| d.child(details))
     }
 

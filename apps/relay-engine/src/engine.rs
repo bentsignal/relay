@@ -576,6 +576,22 @@ impl Engine {
                 }
                 self.dirty = true;
             }
+            Command::WatchVideo { peer, stream } => {
+                let peer_name =
+                    self.network.peers.iter().find(|p| p.id == peer).map(|p| p.name.clone()).unwrap_or_default();
+                let name = self
+                    .network
+                    .peers
+                    .iter()
+                    .find(|p| p.id == peer)
+                    .and_then(|p| p.incoming.iter().find(|s| s.id == stream))
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default();
+                if let Some(net) = self.net.as_ref() {
+                    self.video_mgr.on_incoming(net, &peer, stream, &name, &peer_name);
+                }
+                self.dirty = true;
+            }
             Command::StopVideo { id } => {
                 self.video_mgr.stop(id);
                 self.dirty = true;

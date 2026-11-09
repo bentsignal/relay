@@ -521,6 +521,11 @@ pub enum Command {
     StopVideo {
         id: u32,
     },
+    /// Opens the viewer for a stream that's arriving (e.g. after it was closed).
+    WatchVideo {
+        peer: PeerId,
+        stream: u32,
+    },
     SetVideoCamera {
         peer: PeerId,
         stream: u32,
