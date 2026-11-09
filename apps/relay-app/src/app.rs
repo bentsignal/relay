@@ -957,7 +957,15 @@ impl RelayApp {
                     .unwrap_or_else(|| "Video".into());
                 let line = match &v.status {
                     PortStatus::Error(e) => format!("{what}: {e}"),
-                    _ if v.fps > 0.0 => format!("Sending {what} · {}×{} · {:.0} fps", v.width, v.height, v.fps),
+                    _ if v.fps > 0.0 => {
+                        format!(
+                            "Sending {what} · {}×{} · {:.0} fps · {:.1} Mb/s",
+                            v.width,
+                            v.height,
+                            v.fps,
+                            v.kbps / 1000.0
+                        )
+                    }
                     _ => format!("Sending {what}"),
                 };
                 media = media.child(div().child(line));
@@ -966,7 +974,10 @@ impl RelayApp {
                 let open = st.video.receiving.iter().any(|r| r.peer == p.id && r.stream == inc.id);
                 let label = if inc.name.is_empty() { "Video".to_string() } else { inc.name.clone() };
                 if open {
-                    media = media.child(div().child(format!("Showing {label}")));
+                    let cam = st.video.receiving.iter().any(|r| r.peer == p.id && r.stream == inc.id && r.as_camera);
+                    let line =
+                        if cam { format!("Showing {label} · on Relay Camera") } else { format!("Showing {label}") };
+                    media = media.child(div().child(line));
                 } else {
                     let (peer, stream) = (p.id.clone(), inc.id);
                     media = media.child(
@@ -1146,6 +1157,16 @@ impl RelayApp {
                         cx.listener(move |this, _, _, _| this.cmd(Command::SetNetworkEnabled { on: !net_on })),
                     ),
                 ))
+                .when(cfg!(windows), |d| {
+                    let ready = state.video.camera_supported;
+                    d.child(row("Relay Camera").child(if ready {
+                        muted("Ready", &t).text_size(px(12.0)).into_any_element()
+                    } else {
+                        button("install-cam", "Set up", &t)
+                            .on_click(cx.listener(|this, _, _, _| this.cmd(Command::InstallVirtualAudio)))
+                            .into_any_element()
+                    }))
+                })
                 .child(row("This device").child(muted(state.network.this_name.clone(), &t).text_size(px(12.0))))
                 .child(
                     row("Engine").child(

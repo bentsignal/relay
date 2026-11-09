@@ -26,7 +26,10 @@ fn main() -> std::io::Result<()> {
                     println!("  bus {} {:?} {:?}", b.name, b.sink, b.status);
                 }
                 println!("  net me={} port={} problem={:?}", s.network.this_id, s.network.port, s.network.problem);
-                println!("  update {:?} channel={:?} rolled_back_from={:?}", s.update.state, s.update.channel, s.update.rolled_back_from);
+                println!(
+                    "  update {:?} channel={:?} rolled_back_from={:?}",
+                    s.update.state, s.update.channel, s.update.rolled_back_from
+                );
                 for p in &s.network.peers {
                     println!(
                         "  peer {} {} {:?} paired={} addrs={:?} rtt={:.1} incoming={:?}",
