@@ -132,50 +132,86 @@ pub mod platform {
 
     pub struct Realtime;
 
+    #[repr(C)]
+    struct TimebaseInfo {
+        numer: u32,
+        denom: u32,
+    }
+
+    #[repr(C)]
+    struct TimeConstraint {
+        period: u32,
+        computation: u32,
+        constraint: u32,
+        preemptible: i32,
+    }
+
+    unsafe extern "C" {
+        fn mach_timebase_info(info: *mut TimebaseInfo) -> i32;
+        fn mach_absolute_time() -> u64;
+        fn mach_wait_until(deadline: u64) -> i32;
+        fn thread_policy_set(thread: u32, flavor: i32, info: *const TimeConstraint, count: u32) -> i32;
+        fn pthread_mach_thread_np(thread: libc::pthread_t) -> u32;
+    }
+
+    const THREAD_TIME_CONSTRAINT_POLICY: i32 = 2;
+    const THREAD_TIME_CONSTRAINT_POLICY_COUNT: u32 = 4;
+
     /// Promotes the thread to a Mach time-constraint (realtime) policy.
     pub fn promote_realtime(frames: u32) -> Option<Realtime> {
-        unsafe {
-            let mut info = libc::mach_timebase_info { numer: 0, denom: 0 };
-            libc::mach_timebase_info(&mut info);
-            let ns_to_abs = |ns: f64| (ns * info.denom as f64 / info.numer as f64) as u32;
-            let period_ns = frames as f64 / relay_dsp::ENGINE_RATE as f64 * 1e9;
-            #[repr(C)]
-            struct TimeConstraint {
-                period: u32,
-                computation: u32,
-                constraint: u32,
-                preemptible: i32,
-            }
-            let policy = TimeConstraint {
-                period: ns_to_abs(period_ns),
-                computation: ns_to_abs(period_ns * 0.25),
-                constraint: ns_to_abs(period_ns * 0.75),
-                preemptible: 1,
-            };
-            unsafe extern "C" {
-                fn thread_policy_set(thread: u32, flavor: i32, info: *const TimeConstraint, count: u32) -> i32;
-                fn pthread_mach_thread_np(thread: libc::pthread_t) -> u32;
-            }
-            const THREAD_TIME_CONSTRAINT_POLICY: i32 = 2;
-            let r = thread_policy_set(
+        let mut info = TimebaseInfo { numer: 0, denom: 0 };
+        if unsafe { mach_timebase_info(&mut info) } != 0 || info.numer == 0 {
+            return None;
+        }
+        let ns_to_abs = |ns: f64| (ns * info.denom as f64 / info.numer as f64) as u32;
+        let period_ns = frames as f64 / relay_dsp::ENGINE_RATE as f64 * 1e9;
+        let policy = TimeConstraint {
+            period: ns_to_abs(period_ns),
+            computation: ns_to_abs(period_ns * 0.25),
+            constraint: ns_to_abs(period_ns * 0.75),
+            preemptible: 1,
+        };
+        let r = unsafe {
+            thread_policy_set(
                 pthread_mach_thread_np(libc::pthread_self()),
                 THREAD_TIME_CONSTRAINT_POLICY,
                 &policy,
-                4,
-            );
-            (r == 0).then_some(Realtime)
+                THREAD_TIME_CONSTRAINT_POLICY_COUNT,
+            )
+        };
+        (r == 0).then_some(Realtime)
+    }
+
+    /// Sleeps with `mach_wait_until`, which wakes realtime threads precisely.
+    pub struct Timer {
+        numer: u32,
+        denom: u32,
+    }
+
+    impl Default for Timer {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
-    pub struct Timer;
     impl Timer {
         pub fn new() -> Self {
-            Self
+            let mut info = TimebaseInfo { numer: 0, denom: 0 };
+            if unsafe { mach_timebase_info(&mut info) } != 0 || info.numer == 0 {
+                info = TimebaseInfo { numer: 1, denom: 1 };
+            }
+            Self { numer: info.numer, denom: info.denom }
         }
+
         pub fn sleep_until(&self, deadline: Instant) {
             let now = Instant::now();
-            if deadline > now {
-                std::thread::sleep(deadline - now);
+            if deadline <= now {
+                return;
+            }
+            let ns = (deadline - now).as_nanos();
+            let ticks = (ns * self.denom as u128 / self.numer as u128) as u64;
+            unsafe {
+                mach_wait_until(mach_absolute_time().saturating_add(ticks));
             }
         }
     }

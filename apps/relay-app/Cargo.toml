@@ -18,3 +18,7 @@ crossbeam-channel = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+# Compile Metal shaders at runtime so building doesn't need Xcode's Metal toolchain.
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui = { workspace = true, features = ["runtime_shaders"] }
