@@ -9,6 +9,10 @@
 
 use relay_proto::{EncodedVideo, VideoSource};
 
+pub mod h264;
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
@@ -21,27 +25,23 @@ pub mod viewer {
     pub use crate::windows::viewer::{Viewer, open};
 }
 
-/// Placeholder until the macOS viewer (AVSampleBufferDisplayLayer) lands.
 #[cfg(target_os = "macos")]
 pub mod viewer {
-    use relay_proto::EncodedVideo;
-    pub struct Viewer;
-    impl Viewer {
-        pub fn push(&self, _f: EncodedVideo) -> bool {
-            false
-        }
-        pub fn is_open(&self) -> bool {
-            false
-        }
-        pub fn take_keyframe_request(&self) -> bool {
-            false
-        }
-        pub fn is_camera(&self) -> bool {
-            false
-        }
+    pub use crate::macos::viewer::{Viewer, open};
+}
+
+/// Runs `f` on a new thread while the calling thread (which must be the
+/// process's main thread) services viewer windows, and returns `f`'s result.
+/// macOS needs this because AppKit windows only work on the main thread; on
+/// other platforms it simply calls `f`.
+pub fn run_app<R: Send + 'static>(f: impl FnOnce() -> R + Send + 'static) -> R {
+    #[cfg(target_os = "macos")]
+    {
+        macos::run_app(f)
     }
-    pub fn open(_title: &str) -> anyhow::Result<Viewer> {
-        anyhow::bail!("video viewing isn't available on macOS yet")
+    #[cfg(not(target_os = "macos"))]
+    {
+        f()
     }
 }
 
@@ -143,7 +143,11 @@ pub fn sources() -> Vec<VideoSource> {
     {
         windows::sources()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::sources()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Vec::new()
     }
@@ -155,7 +159,11 @@ pub fn start(source: &str, settings: Settings, sink: FrameSink) -> anyhow::Resul
     {
         windows::start(source, settings, sink)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::start(source, settings, sink)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (source, settings, sink);
         anyhow::bail!("video capture isn't available on this platform yet")
