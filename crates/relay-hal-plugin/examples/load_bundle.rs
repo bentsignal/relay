@@ -74,15 +74,25 @@ mod mac {
         has_property: unsafe extern "C" fn(*mut c_void, u32, i32, *const Addr) -> u8,
         _settable: Fp,
         get_size: unsafe extern "C" fn(*mut c_void, u32, i32, *const Addr, u32, *const c_void, *mut u32) -> i32,
-        get_data:
-            unsafe extern "C" fn(*mut c_void, u32, i32, *const Addr, u32, *const c_void, u32, *mut u32, *mut c_void) -> i32,
+        get_data: unsafe extern "C" fn(
+            *mut c_void,
+            u32,
+            i32,
+            *const Addr,
+            u32,
+            *const c_void,
+            u32,
+            *mut u32,
+            *mut c_void,
+        ) -> i32,
         _set: Fp,
         start_io: unsafe extern "C" fn(*mut c_void, u32, u32) -> i32,
         stop_io: unsafe extern "C" fn(*mut c_void, u32, u32) -> i32,
         zero_ts: unsafe extern "C" fn(*mut c_void, u32, u32, *mut f64, *mut u64, *mut u64) -> i32,
         _will_do: Fp,
         _begin: Fp,
-        do_io: unsafe extern "C" fn(*mut c_void, u32, u32, u32, u32, u32, *const Cycle, *mut c_void, *mut c_void) -> i32,
+        do_io:
+            unsafe extern "C" fn(*mut c_void, u32, u32, u32, u32, u32, *const Cycle, *mut c_void, *mut c_void) -> i32,
         _end: Fp,
     }
 
@@ -135,7 +145,13 @@ mod mac {
     }
 
     impl Driver {
-        fn get<T: Copy + Default>(&self, obj: u32, sel: u32, scope: u32, qual: Option<CFRef>) -> Result<Vec<T>, String> {
+        fn get<T: Copy + Default>(
+            &self,
+            obj: u32,
+            sel: u32,
+            scope: u32,
+            qual: Option<CFRef>,
+        ) -> Result<Vec<T>, String> {
             let a = Addr { sel, scope, elem: 0 };
             let (qs, qp) = match &qual {
                 Some(q) => (8, q as *const CFRef as *const c_void),
@@ -177,7 +193,8 @@ mod mac {
         }
 
         fn translate(&self, uid: &str) -> u32 {
-            let s = unsafe { CFStringCreateWithBytes(std::ptr::null(), uid.as_ptr(), uid.len() as isize, 0x0800_0100, 0) };
+            let s =
+                unsafe { CFStringCreateWithBytes(std::ptr::null(), uid.as_ptr(), uid.len() as isize, 0x0800_0100, 0) };
             let r = self.get::<u32>(1, c(b"uidd"), c(b"glob"), Some(s)).unwrap()[0];
             unsafe { CFRelease(s) };
             r
@@ -252,18 +269,58 @@ mod mac {
             let read = c(b"read");
             let main_streams = drv.ids(main, b"stm#", b"glob");
             let eng_streams = drv.ids(engine, b"stm#", b"glob");
-            (drv.v.do_io)(drv.d, main, main_streams[1], 1, write, frames, &cyc, buf.as_mut_ptr().cast(), std::ptr::null_mut());
+            (drv.v.do_io)(
+                drv.d,
+                main,
+                main_streams[1],
+                1,
+                write,
+                frames,
+                &cyc,
+                buf.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
             cyc.input.sample = t;
             let mut got = vec![0f32; buf.len()];
-            (drv.v.do_io)(drv.d, engine, eng_streams[0], 7, read, frames, &cyc, got.as_mut_ptr().cast(), std::ptr::null_mut());
+            (drv.v.do_io)(
+                drv.d,
+                engine,
+                eng_streams[0],
+                7,
+                read,
+                frames,
+                &cyc,
+                got.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
             assert_eq!(got, tone, "engine input should equal what was played to Relay");
             println!("Relay output -> Relay Engine input: {frames} frames identical");
             let mic: Vec<f32> = tone.iter().map(|s| -s).collect();
             let mut buf = mic.clone();
             cyc.output.sample = t + 4096.0;
-            (drv.v.do_io)(drv.d, engine, eng_streams[1], 7, write, frames, &cyc, buf.as_mut_ptr().cast(), std::ptr::null_mut());
+            (drv.v.do_io)(
+                drv.d,
+                engine,
+                eng_streams[1],
+                7,
+                write,
+                frames,
+                &cyc,
+                buf.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
             cyc.input.sample = t + 4096.0;
-            (drv.v.do_io)(drv.d, main, main_streams[0], 1, read, frames, &cyc, got.as_mut_ptr().cast(), std::ptr::null_mut());
+            (drv.v.do_io)(
+                drv.d,
+                main,
+                main_streams[0],
+                1,
+                read,
+                frames,
+                &cyc,
+                got.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
             assert_eq!(got, mic, "Relay input should equal what the engine wrote");
             println!("Relay Engine output -> Relay input: {frames} frames identical");
 

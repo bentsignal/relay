@@ -3,6 +3,9 @@
 use relay_mixer::{PipeReader, PipeWriter};
 use relay_proto::VirtualAudioState;
 
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 pub trait VirtualBackend: Send {
     fn state(&self) -> VirtualAudioState;
     /// Audio apps play to virtual device `index`.
@@ -20,7 +23,11 @@ pub fn create() -> Box<dyn VirtualBackend> {
     {
         Box::new(windows::WinVirtual::new())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        Box::new(macos::MacVirtual::new())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Box::new(Unsupported)
     }

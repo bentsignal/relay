@@ -478,6 +478,22 @@ impl Engine {
                 let _ = relay_audio::windows::set_default_endpoint(relay_audio::windows::endpoint_id_from_key(&key));
             }
         }
+        #[cfg(target_os = "macos")]
+        {
+            let out = self.cfg.mixer.buses.iter().find_map(|b| match &b.sink {
+                Sink::Device { key, .. } => Some(key.clone()),
+                _ => None,
+            });
+            let inp = self.cfg.mixer.strips.iter().find_map(|s| match &s.source {
+                Source::Device { key, .. } => Some(key.clone()),
+                _ => None,
+            });
+            for (key, input) in [(out, false), (inp, true)] {
+                if let Some(key) = key {
+                    let _ = relay_audio::macos::set_default_device(relay_audio::macos::uid_from_key(&key), input);
+                }
+            }
+        }
     }
 
     fn apply_relay_defaults(&mut self) {
@@ -493,6 +509,20 @@ impl Engine {
                     if let Err(e) =
                         relay_audio::windows::set_default_endpoint(relay_audio::windows::endpoint_id_from_key(&key))
                     {
+                        tracing::warn!("couldn't set default device: {e:#}");
+                    }
+                }
+                self.defaults_applied = true;
+                self.dirty = true;
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            use crate::virt::macos::MAIN_UID;
+            // "Relay" appears shortly after the engine starts IO.
+            if relay_audio::macos::device_by_uid(MAIN_UID).is_some() {
+                for input in [false, true] {
+                    if let Err(e) = relay_audio::macos::set_default_device(MAIN_UID, input) {
                         tracing::warn!("couldn't set default device: {e:#}");
                     }
                 }

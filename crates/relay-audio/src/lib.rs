@@ -11,6 +11,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(target_os = "macos")]
+pub mod macos;
 #[cfg(windows)]
 pub mod windows;
 
@@ -161,7 +163,7 @@ fn open_capture(device: cpal::Device, loopback: bool) -> Result<(DeviceStream, P
     let failed = Arc::new(AtomicBool::new(false));
     let mut scratch: Vec<f32> = Vec::with_capacity(32768);
     let stream = device.build_input_stream_raw(
-        config.clone(),
+        config,
         format,
         move |data: &cpal::Data, _: &cpal::InputCallbackInfo| {
             to_stereo(data, channels, &mut scratch);
@@ -198,7 +200,7 @@ pub fn open_output(key: &str) -> Result<(DeviceStream, PipeWriter)> {
     let failed = Arc::new(AtomicBool::new(false));
     let mut scratch: Vec<f32> = vec![0.0; 32768];
     let stream = device.build_output_stream_raw(
-        config.clone(),
+        config,
         format,
         move |data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| {
             let frames = data.len() / channels.max(1);

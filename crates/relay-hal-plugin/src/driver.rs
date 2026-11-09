@@ -328,7 +328,7 @@ pub fn property(
             kAudioObjectPropertyManufacturer => Ok(Str(MANUFACTURER)),
             kAudioObjectPropertyOwnedObjects | kAudioPlugInPropertyDeviceList => Ok(U32s(st.devices())),
             kAudioPlugInPropertyTranslateUIDToDevice => {
-                let uid = qualifier.and_then(|q| cfstring_qualifier(q));
+                let uid = qualifier.and_then(cfstring_qualifier);
                 let id = [&MAIN_DEVICE, &ENGINE_DEVICE]
                     .into_iter()
                     .find(|d| uid.as_deref() == Some(d.uid) && (d.id != MAIN || st.published()))
@@ -901,7 +901,10 @@ mod tests {
         assert!(matches!(get(&st, MAIN, kAudioDevicePropertyIsHidden), Value::U32(0)));
         assert!(matches!(get(&st, ENGINE_IN, kAudioStreamPropertyDirection), Value::U32(1)));
         assert!(matches!(get(&st, ENGINE_OUT, kAudioStreamPropertyDirection), Value::U32(0)));
-        assert_eq!(property(&st, 99, &address(kAudioObjectPropertyClass, 0), None).err(), Some(kAudioHardwareBadObjectError));
+        assert_eq!(
+            property(&st, 99, &address(kAudioObjectPropertyClass, 0), None).err(),
+            Some(kAudioHardwareBadObjectError)
+        );
     }
 
     #[test]
@@ -932,17 +935,47 @@ mod tests {
         info.mOutputTime.mSampleTime = 1000.0;
         let mut play: Vec<f32> = (0..frames * 2).map(|i| i as f32).collect();
         unsafe {
-            do_io_operation(d, MAIN, MAIN_OUT, 1, kAudioServerPlugInIOOperationWriteMix, frames, &info, play.as_mut_ptr().cast(), std::ptr::null_mut());
+            do_io_operation(
+                d,
+                MAIN,
+                MAIN_OUT,
+                1,
+                kAudioServerPlugInIOOperationWriteMix,
+                frames,
+                &info,
+                play.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
         }
         info.mInputTime.mSampleTime = 1000.0;
         let mut rec = vec![0f32; (frames * 2) as usize];
         unsafe {
-            do_io_operation(d, ENGINE, ENGINE_IN, 2, kAudioServerPlugInIOOperationReadInput, frames, &info, rec.as_mut_ptr().cast(), std::ptr::null_mut());
+            do_io_operation(
+                d,
+                ENGINE,
+                ENGINE_IN,
+                2,
+                kAudioServerPlugInIOOperationReadInput,
+                frames,
+                &info,
+                rec.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
         }
         assert_eq!(rec, play);
         // Nothing was written to the microphone loop.
         unsafe {
-            do_io_operation(d, MAIN, MAIN_IN, 1, kAudioServerPlugInIOOperationReadInput, frames, &info, rec.as_mut_ptr().cast(), std::ptr::null_mut());
+            do_io_operation(
+                d,
+                MAIN,
+                MAIN_IN,
+                1,
+                kAudioServerPlugInIOOperationReadInput,
+                frames,
+                &info,
+                rec.as_mut_ptr().cast(),
+                std::ptr::null_mut(),
+            );
         }
         assert!(rec.iter().all(|&s| s == 0.0));
     }

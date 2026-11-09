@@ -4746,6 +4746,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cpal",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
  "parking_lot",
  "relay-dsp",
  "relay-mixer",

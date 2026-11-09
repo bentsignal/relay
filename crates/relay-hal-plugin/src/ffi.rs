@@ -4,7 +4,7 @@
 //! of CoreAudio.framework, so nothing here comes from a bindings crate. The
 //! tests check every constant against `objc2-core-audio`.
 
-#![allow(non_upper_case_globals, non_snake_case, dead_code)]
+#![allow(non_upper_case_globals, non_snake_case, dead_code, clippy::upper_case_acronyms)]
 
 use std::ffi::c_void;
 
@@ -113,7 +113,8 @@ pub type DriverRef = *mut c_void;
 
 #[repr(C)]
 pub struct AudioServerPlugInHostInterface {
-    pub PropertiesChanged: unsafe extern "C" fn(HostRef, AudioObjectID, u32, *const AudioObjectPropertyAddress) -> OSStatus,
+    pub PropertiesChanged:
+        unsafe extern "C" fn(HostRef, AudioObjectID, u32, *const AudioObjectPropertyAddress) -> OSStatus,
     pub CopyFromStorage: unsafe extern "C" fn(HostRef, CFStringRef, *mut CFTypeRef) -> OSStatus,
     pub WriteToStorage: unsafe extern "C" fn(HostRef, CFStringRef, CFTypeRef) -> OSStatus,
     pub DeleteFromStorage: unsafe extern "C" fn(HostRef, CFStringRef) -> OSStatus,
@@ -136,8 +137,13 @@ pub struct AudioServerPlugInDriverInterface {
     pub PerformDeviceConfigurationChange: unsafe extern "C" fn(DriverRef, AudioObjectID, u64, *mut c_void) -> OSStatus,
     pub AbortDeviceConfigurationChange: unsafe extern "C" fn(DriverRef, AudioObjectID, u64, *mut c_void) -> OSStatus,
     pub HasProperty: unsafe extern "C" fn(DriverRef, AudioObjectID, i32, *const AudioObjectPropertyAddress) -> Boolean,
-    pub IsPropertySettable:
-        unsafe extern "C" fn(DriverRef, AudioObjectID, i32, *const AudioObjectPropertyAddress, *mut Boolean) -> OSStatus,
+    pub IsPropertySettable: unsafe extern "C" fn(
+        DriverRef,
+        AudioObjectID,
+        i32,
+        *const AudioObjectPropertyAddress,
+        *mut Boolean,
+    ) -> OSStatus,
     pub GetPropertyDataSize: unsafe extern "C" fn(
         DriverRef,
         AudioObjectID,
@@ -192,12 +198,10 @@ pub struct AudioServerPlugInDriverInterface {
 
 // ---------------------------------------------------------------- UUIDs
 
-pub const kAudioServerPlugInTypeUUID: CFUUIDBytes = CFUUIDBytes([
-    0x44, 0x3A, 0xBA, 0xB8, 0xE7, 0xB3, 0x49, 0x1A, 0xB9, 0x85, 0xBE, 0xB9, 0x18, 0x70, 0x30, 0xDB,
-]);
-pub const kAudioServerPlugInDriverInterfaceUUID: CFUUIDBytes = CFUUIDBytes([
-    0xEE, 0xA5, 0x77, 0x3D, 0xCC, 0x43, 0x49, 0xF1, 0x8E, 0x00, 0x8F, 0x96, 0xE7, 0xD2, 0x3B, 0x17,
-]);
+pub const kAudioServerPlugInTypeUUID: CFUUIDBytes =
+    CFUUIDBytes([0x44, 0x3A, 0xBA, 0xB8, 0xE7, 0xB3, 0x49, 0x1A, 0xB9, 0x85, 0xBE, 0xB9, 0x18, 0x70, 0x30, 0xDB]);
+pub const kAudioServerPlugInDriverInterfaceUUID: CFUUIDBytes =
+    CFUUIDBytes([0xEE, 0xA5, 0x77, 0x3D, 0xCC, 0x43, 0x49, 0xF1, 0x8E, 0x00, 0x8F, 0x96, 0xE7, 0xD2, 0x3B, 0x17]);
 pub const IUnknownUUID: CFUUIDBytes =
     CFUUIDBytes([0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46]);
 
@@ -361,7 +365,10 @@ mod tests {
             (kAudioDevicePropertyDeviceIsAlive, ca::kAudioDevicePropertyDeviceIsAlive),
             (kAudioDevicePropertyDeviceIsRunning, ca::kAudioDevicePropertyDeviceIsRunning),
             (kAudioDevicePropertyDeviceCanBeDefaultDevice, ca::kAudioDevicePropertyDeviceCanBeDefaultDevice),
-            (kAudioDevicePropertyDeviceCanBeDefaultSystemDevice, ca::kAudioDevicePropertyDeviceCanBeDefaultSystemDevice),
+            (
+                kAudioDevicePropertyDeviceCanBeDefaultSystemDevice,
+                ca::kAudioDevicePropertyDeviceCanBeDefaultSystemDevice,
+            ),
             (kAudioDevicePropertyLatency, ca::kAudioDevicePropertyLatency),
             (kAudioDevicePropertyStreams, ca::kAudioDevicePropertyStreams),
             (kAudioDevicePropertySafetyOffset, ca::kAudioDevicePropertySafetyOffset),
