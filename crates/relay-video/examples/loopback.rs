@@ -4,7 +4,7 @@ use std::sync::Arc;
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter("info,relay_video=debug").init();
     let secs: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(8);
-    let viewer = Arc::new(relay_video::windows::viewer::open("Relay test viewer")?);
+    let viewer = Arc::new(relay_video::viewer::open("Relay test viewer")?);
     let v2 = viewer.clone();
     let src = relay_video::sources().first().map(|s| s.key.clone()).expect("no screen");
     let settings = relay_video::Settings { max_width: 1280, max_height: 720, ..Default::default() };

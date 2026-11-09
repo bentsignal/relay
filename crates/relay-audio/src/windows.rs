@@ -309,32 +309,3 @@ pub fn disable_enhancements(endpoint_id: &str) -> Result<()> {
     };
     hr.ok().map_err(|e| anyhow!("couldn't turn off enhancements: {e}"))
 }
-
-/// Removes the stream/mode effect APOs Windows attached to an endpoint (e.g.
-/// Voice Clarity on microphones without their own processing).
-pub fn clear_effects(endpoint_id: &str) -> Result<()> {
-    com();
-    let unk: IUnknown = unsafe { CoCreateInstance(&CLSID_POLICY_CONFIG, None, CLSCTX_ALL)? };
-    let mut ptr: *mut c_void = std::ptr::null_mut();
-    unsafe { unk.query(&IID_POLICY_CONFIG, &mut ptr) }.ok()?;
-    if ptr.is_null() {
-        return Err(anyhow!("IPolicyConfig unavailable"));
-    }
-    let wide: Vec<u16> = endpoint_id.encode_utf16().chain(Some(0)).collect();
-    let fx = GUID::from_u128(0xd3993a3f_99c2_4402_b5ec_a92a0367664b);
-    let null =
-        windows::Win32::System::Com::StructuredStorage::PROPVARIANT::from("{00000000-0000-0000-0000-000000000000}");
-    let mut last = Ok(());
-    unsafe {
-        let vtbl = &**(ptr as *mut *const PolicyConfigFullVtbl);
-        for pid in [5u32, 6, 7] {
-            let key = windows::Win32::Foundation::PROPERTYKEY { fmtid: fx, pid };
-            let hr = (vtbl.set_property_value)(ptr, PCWSTR(wide.as_ptr()), 1, &key, &null);
-            if hr.is_err() {
-                last = Err(anyhow!("clearing effect {pid}: {hr:?}"));
-            }
-        }
-        (vtbl.release)(ptr);
-    }
-    last
-}
