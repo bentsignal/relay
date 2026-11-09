@@ -50,6 +50,8 @@ pub struct Engine {
     pub network: Network,
     pub video: Video,
     pub update: Update,
+    updater: crate::updates::Updater,
+    pub quit: bool,
     pub net: Option<relay_net::NetHandle>,
     net_events: Option<crossbeam_channel::Receiver<relay_net::NetEvent>>,
 }
@@ -73,6 +75,7 @@ impl Engine {
         // Virtual devices come up after the layout is chosen: Windows makes a
         // newly plugged device the default, which would hide the hardware.
         let virt = virt::create();
+        let channel = cfg.channel;
         let mut e = Self {
             cfg,
             graph,
@@ -90,11 +93,17 @@ impl Engine {
             network: Network::default(),
             video: Video::default(),
             update: Update::default(),
+            updater: crate::updates::Updater::start(channel),
+            quit: false,
             net: None,
             net_events: None,
         };
         e.update.channel = e.cfg.channel;
         e.update.current = crate::VERSION.to_string();
+        e.update.rolled_back_from = relay_update::install::load_state().rolled_back_from;
+        if !e.updater.managed {
+            e.update.state = UpdateState::Idle;
+        }
         e.start_network();
         e.rebuild_all();
         Ok(e)
@@ -453,7 +462,24 @@ impl Engine {
             Command::SetChannel { channel } => {
                 self.cfg.channel = channel;
                 self.update.channel = channel;
+                self.updater.ready = None;
+                self.updater.check(channel);
                 self.changed();
+            }
+            Command::CheckForUpdates => {
+                if self.updater.managed {
+                    self.updater.check(self.cfg.channel);
+                } else {
+                    self.notices.push(("This copy of Relay isn't installed, so it can't update itself.".into(), false));
+                }
+            }
+            Command::ApplyUpdate => {
+                if let Some(v) = self.updater.ready.clone() {
+                    match crate::updates::apply(&v) {
+                        Ok(()) => self.quit = true,
+                        Err(e) => self.notices.push((format!("Update failed: {e}"), true)),
+                    }
+                }
             }
             Command::SetDeviceName { name } => {
                 let name = name.trim().to_string();
@@ -667,6 +693,16 @@ impl Engine {
             self.cfg.mixer.strips.iter().filter(|s| matches!(s.source, Source::Network { .. })).map(|s| s.id).collect();
         for id in strips {
             self.build_strip(id);
+        }
+    }
+
+    pub fn poll_updates(&mut self) {
+        while let Ok(crate::updates::UpdateMsg::State(st)) = self.updater.rx.try_recv() {
+            if let UpdateState::Ready(v) = &st {
+                self.updater.ready = Some(v.clone());
+            }
+            self.update.state = st;
+            self.dirty = true;
         }
     }
 

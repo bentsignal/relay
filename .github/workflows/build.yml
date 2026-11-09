@@ -1,0 +1,136 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      channel: ${{ steps.v.outputs.channel }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          base=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"
+            echo "version=$v" >> "$GITHUB_OUTPUT"
+            echo "channel=stable" >> "$GITHUB_OUTPUT"
+            echo "tag=v$v" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$base-dev.$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "channel=dev" >> "$GITHUB_OUTPUT"
+            echo "tag=dev-$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          fi
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    env:
+      RELAY_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install binary-refinery
+      - run: cargo test --workspace --locked
+      - run: pwsh scripts/windows/package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relay-windows-x64
+          path: dist/relay-windows-x64.zip
+
+  macos:
+    needs: version
+    runs-on: macos-latest
+    env:
+      RELAY_VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Import signing identity
+        env:
+          P12: ${{ secrets.MACOS_CERT_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then echo "no signing identity; ad-hoc signing"; exit 0; fi
+          kc="$RUNNER_TEMP/relay.keychain-db"
+          security create-keychain -p ci "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p ci "$kc"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/relay.p12"
+          security import "$RUNNER_TEMP/relay.p12" -k "$kc" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$kc"
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          openssl pkcs12 -in "$RUNNER_TEMP/relay.p12" -nokeys -passin "pass:$P12_PASSWORD" -legacy -out "$RUNNER_TEMP/cert.pem" || \
+            openssl pkcs12 -in "$RUNNER_TEMP/relay.p12" -nokeys -passin "pass:$P12_PASSWORD" -out "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
+          echo "MACOS_SIGN_IDENTITY=Relay Self-Signed" >> "$GITHUB_ENV"
+      - run: cargo test --workspace --locked
+      - run: scripts/macos/package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: relay-macos-arm64
+          path: dist/relay-macos-arm64.zip
+
+  publish:
+    needs: [version, windows, macos]
+    # Publish whatever built: a broken platform shouldn't block the other.
+    if: always() && needs.version.result == 'success' && (needs.windows.result == 'success' || needs.macos.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.version.outputs.version }}
+      CHANNEL: ${{ needs.version.outputs.channel }}
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create release
+        run: |
+          notes="Relay $VERSION ($CHANNEL) built from ${GITHUB_SHA::7}."
+          if [ "$CHANNEL" = "dev" ]; then
+            gh release create "$TAG" artifacts/*.zip --target "$GITHUB_SHA" --prerelease --title "Relay $VERSION" --notes "$notes"
+          else
+            gh release create "$TAG" artifacts/*.zip --title "Relay $VERSION" --notes "$notes" --latest
+          fi
+      - name: Sign and publish channel manifest
+        env:
+          RELAY_UPDATE_KEY: ${{ secrets.RELAY_UPDATE_KEY }}
+        run: |
+          export RELAY_BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cargo run --locked --release -p relay-release -- manifest "$CHANNEL" "$VERSION" "$GITHUB_SHA" "$TAG" artifacts manifests
+          gh release view channels >/dev/null 2>&1 || \
+            gh release create channels --prerelease --title "Update channels" --notes "Signed update manifests used by Relay's in-app updater."
+          gh release upload channels manifests/$CHANNEL.json manifests/$CHANNEL.json.sig --clobber
+      - name: Prune old dev builds
+        if: needs.version.outputs.channel == 'dev'
+        run: |
+          gh release list --limit 200 --json tagName --jq '.[].tagName' | grep '^dev-' | sort -t- -k2 -n -r | tail -n +11 | \
+            while read -r t; do gh release delete "$t" --yes --cleanup-tag || true; done

@@ -92,6 +92,7 @@ pub struct RelayApp {
     last_try: Instant,
     launched_at: Instant,
     appearance: Option<WindowAppearance>,
+    quit_requested: bool,
 }
 
 impl RelayApp {
@@ -123,6 +124,7 @@ impl RelayApp {
             last_try: Instant::now() - Duration::from_secs(5),
             launched_at: Instant::now(),
             appearance: Some(appearance),
+            quit_requested: false,
         };
         app.try_connect();
         app
@@ -189,6 +191,10 @@ impl RelayApp {
             self.notice = None;
             changed = true;
         }
+        if self.quit_requested {
+            cx.quit();
+            return;
+        }
         if changed {
             cx.notify();
         }
@@ -196,7 +202,11 @@ impl RelayApp {
 
     fn on_msg(&mut self, msg: ServerMsg) {
         match msg {
-            ServerMsg::Hello { .. } => {}
+            ServerMsg::Hello { engine_version, .. } => {
+                if engine_version != crate::VERSION && crate::engine_proc::relaunch_updated(&engine_version) {
+                    self.quit_requested = true;
+                }
+            }
             ServerMsg::State(s) => {
                 // Keep local optimistic values while dragging that control.
                 let mut s = *s;

@@ -6,6 +6,7 @@ pub mod discovery;
 pub mod identity;
 mod service;
 pub mod tls;
+pub mod video;
 pub mod wire;
 
-pub use service::{DEFAULT_PORT, NetConfig, NetEvent, NetHandle};
+pub use service::{DEFAULT_PORT, NetConfig, NetEvent, NetHandle, VideoTx};

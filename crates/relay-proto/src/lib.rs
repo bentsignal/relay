@@ -256,6 +256,28 @@ pub enum StreamKind {
     Video,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoCodec {
+    #[default]
+    H264,
+    Hevc,
+}
+
+/// One compressed video frame (Annex B access unit).
+#[derive(Clone, Debug, Default)]
+pub struct EncodedVideo {
+    pub stream: u32,
+    pub seq: u32,
+    /// Capture time on the sender's clock.
+    pub pts_us: u64,
+    pub key: bool,
+    pub codec: VideoCodec,
+    pub width: u16,
+    pub height: u16,
+    pub data: Vec<u8>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct Network {
     pub this_id: PeerId,

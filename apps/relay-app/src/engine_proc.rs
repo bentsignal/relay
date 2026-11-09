@@ -41,3 +41,58 @@ pub fn launch() -> bool {
     cmd.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     cmd.spawn().is_ok()
 }
+
+/// First run of a downloaded build: install it and return the installed app
+/// to launch instead. Returns None when already running from the install (or
+/// from a development build).
+pub fn install_if_needed() -> Option<PathBuf> {
+    use relay_update::install;
+    if install::is_dev_build() || install::running_installed() {
+        return None;
+    }
+    if cfg!(target_os = "macos") {
+        // The bundle stays where the user put it; just register login start once.
+        if install::load_state().active.is_none() {
+            let _ = install::first_install(crate::VERSION);
+        }
+        return None;
+    }
+    let st = install::load_state();
+    if st.active.as_deref() == Some(crate::VERSION)
+        && let Some(exe) = install::active_exe("relay")
+    {
+        return Some(exe);
+    }
+    stop_engine();
+    match install::first_install(crate::VERSION) {
+        Ok(exe) => Some(exe),
+        Err(e) => {
+            tracing::error!("install failed: {e:#}");
+            None
+        }
+    }
+}
+
+/// Asks a running engine to quit and waits for it to go away.
+pub fn stop_engine() {
+    if let Ok((client, _rx)) = relay_ipc::Client::connect("relay-installer") {
+        let _ = client.send(&relay_proto::ClientMsg::Command(relay_proto::Command::Quit));
+    }
+    let t = std::time::Instant::now();
+    while relay_ipc::engine_running() && t.elapsed() < std::time::Duration::from_secs(8) {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+}
+
+/// After the engine updated itself, restart this UI from the new version.
+pub fn relaunch_updated(engine_version: &str) -> bool {
+    use relay_update::install;
+    // Only when the active install matches the engine, so this can't loop.
+    if !install::running_installed() || install::load_state().active.as_deref() != Some(engine_version) {
+        return false;
+    }
+    match relay_update::install::active_exe("relay") {
+        Some(exe) => Command::new(exe).spawn().is_ok(),
+        None => false,
+    }
+}

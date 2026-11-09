@@ -111,6 +111,8 @@ struct Shared {
     sinks: Mutex<HashMap<(String, u32), SinkEntry>>,
     receivers: Mutex<HashMap<(String, u32), SharedReceiver>>,
     source_pipes: Mutex<HashMap<(String, u32), Arc<PipeShared>>>,
+    video_sinks: Mutex<HashMap<(String, u32), (String, Arc<std::sync::atomic::AtomicBool>)>>,
+    video_subs: Mutex<HashMap<(String, u32), VideoSub>>,
     events: CbSender<NetEvent>,
     endpoint: quinn::Endpoint,
     problem: Mutex<Option<String>>,
@@ -180,6 +182,8 @@ impl NetHandle {
             sinks: Mutex::new(HashMap::new()),
             receivers: Mutex::new(HashMap::new()),
             source_pipes: Mutex::new(HashMap::new()),
+            video_sinks: Mutex::new(HashMap::new()),
+            video_subs: Mutex::new(HashMap::new()),
             events: tx,
             endpoint,
             problem: Mutex::new(problem),
@@ -298,6 +302,38 @@ impl NetHandle {
         r
     }
 
+    /// Starts a video stream to `peer`. Frames are handed to the returned sender.
+    pub fn open_video_sink(&self, peer: &str, stream: u32, name: &str) -> VideoTx {
+        let key = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        self.shared.video_sinks.lock().insert((peer.to_string(), stream), (name.to_string(), key.clone()));
+        if let Some(c) = self.shared.peers.lock().get(peer).and_then(|p| p.ctrl.clone()) {
+            let _ = c.send(video_start(stream, name));
+        }
+        VideoTx {
+            shared: self.shared.clone(),
+            peer: peer.to_string(),
+            stream,
+            rt: self.rt.handle().clone(),
+            inflight: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            key,
+        }
+    }
+
+    /// Receives video `stream` from `peer` (replacing an earlier subscriber).
+    pub fn subscribe_video(&self, peer: &str, stream: u32) -> CbReceiver<relay_proto::EncodedVideo> {
+        let (tx, rx) = crossbeam_channel::bounded(8);
+        let mut subs = self.shared.video_subs.lock();
+        let sub = subs.entry((peer.to_string(), stream)).or_default();
+        sub.tx = Some(tx);
+        sub.reorder = crate::video::Reorder::default();
+        drop(subs);
+        // Start from a keyframe.
+        if let Some(c) = self.shared.peers.lock().get(peer).and_then(|p| p.ctrl.clone()) {
+            let _ = c.send(Ctrl::Keyframe { stream });
+        }
+        rx
+    }
+
     pub fn link_state(&self, peer: &str) -> Option<LinkState> {
         self.shared.peers.lock().get(peer).map(|p| p.state.clone())
     }
@@ -311,6 +347,111 @@ impl Drop for NetHandle {
             }
         }
         self.shared.endpoint.close(0u32.into(), b"bye");
+    }
+}
+
+#[derive(Default)]
+struct VideoSub {
+    reorder: crate::video::Reorder,
+    tx: Option<CbSender<relay_proto::EncodedVideo>>,
+}
+
+/// Sends encoded video frames to one peer.
+pub struct VideoTx {
+    shared: Arc<Shared>,
+    peer: String,
+    stream: u32,
+    rt: tokio::runtime::Handle,
+    inflight: Arc<std::sync::atomic::AtomicUsize>,
+    key: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl VideoTx {
+    /// True (once) when the receiver needs a keyframe.
+    pub fn take_keyframe_request(&self) -> bool {
+        self.key.swap(false, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn connected(&self) -> bool {
+        self.shared.peers.lock().get(&self.peer).map(|p| p.conn.is_some()).unwrap_or(false)
+    }
+
+    /// Queues a frame. Non-key frames are dropped while the link is backed up,
+    /// and a keyframe is requested so the picture recovers cleanly.
+    pub fn send(&self, mut frame: relay_proto::EncodedVideo) -> bool {
+        use std::sync::atomic::Ordering;
+        frame.stream = self.stream;
+        let Some(conn) = self.shared.peers.lock().get(&self.peer).and_then(|p| p.conn.clone()) else { return false };
+        if self.inflight.load(Ordering::Relaxed) >= 4 && !frame.key {
+            self.key.store(true, Ordering::Relaxed);
+            return false;
+        }
+        self.inflight.fetch_add(1, Ordering::Relaxed);
+        let inflight = self.inflight.clone();
+        self.rt.spawn(async move {
+            let res = async {
+                let mut s = conn.open_uni().await?;
+                let _ = s.set_priority(if frame.key { i32::MAX } else { frame.seq as i32 & 0x3fff_ffff });
+                s.write_all(&crate::video::header(&frame)).await?;
+                s.write_all(&frame.data).await?;
+                s.finish()?;
+                anyhow::Ok(())
+            }
+            .await;
+            if let Err(e) = res {
+                tracing::debug!("video send: {e:#}");
+            }
+            inflight.fetch_sub(1, Ordering::Relaxed);
+        });
+        true
+    }
+}
+
+impl Drop for VideoTx {
+    fn drop(&mut self) {
+        self.shared.video_sinks.lock().remove(&(self.peer.clone(), self.stream));
+        if let Some(c) = self.shared.peers.lock().get(&self.peer).and_then(|p| p.ctrl.clone()) {
+            let _ = c.send(Ctrl::StreamStop { stream: self.stream });
+        }
+    }
+}
+
+fn video_start(stream: u32, name: &str) -> Ctrl {
+    Ctrl::StreamStart {
+        stream,
+        kind: StreamKind::Video,
+        name: name.to_string(),
+        codec: "h264".into(),
+        rate: 0,
+        channels: 0,
+    }
+}
+
+fn deliver_video(shared: &Shared, peer: &str, frame: relay_proto::EncodedVideo, ctrl: &mpsc::UnboundedSender<Ctrl>) {
+    let stream = frame.stream;
+    let mut out = Vec::new();
+    let mut subs = shared.video_subs.lock();
+    let sub = subs.entry((peer.to_string(), stream)).or_default();
+    sub.reorder.push(frame, &mut out);
+    emit_video(sub, stream, out, ctrl);
+}
+
+fn emit_video(sub: &mut VideoSub, stream: u32, out: Vec<crate::video::Output>, ctrl: &mpsc::UnboundedSender<Ctrl>) {
+    for o in out {
+        match o {
+            crate::video::Output::Frame(f) => {
+                if let Some(tx) = &sub.tx
+                    && tx.try_send(f).is_err()
+                {
+                    // The decoder fell behind: skip to the next keyframe.
+                    sub.reorder = crate::video::Reorder::default();
+                    let _ = ctrl.send(Ctrl::Keyframe { stream });
+                }
+            }
+            crate::video::Output::RequestKeyframe => {
+                let _ = ctrl.send(Ctrl::Keyframe { stream });
+            }
+        }
     }
 }
 
@@ -624,6 +765,14 @@ async fn session(
         .iter()
         .filter(|((p, _), _)| *p == peer)
         .map(|((_, s), e)| stream_start(*s, &e.name))
+        .chain(
+            shared
+                .video_sinks
+                .lock()
+                .iter()
+                .filter(|((p, _), _)| *p == peer)
+                .map(|((_, s), (name, _))| video_start(*s, name)),
+        )
         .collect();
     for c in announce {
         let _ = ctrl_tx.send(c);
@@ -667,6 +816,11 @@ async fn session(
                         let _ = shared.events.send(NetEvent::StreamEnded { peer: peer.clone(), stream });
                         emit_peers(&shared);
                     }
+                    Ctrl::Keyframe { stream } => {
+                        if let Some((_, k)) = shared.video_sinks.lock().get(&(peer.clone(), stream)) {
+                            k.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
                     Ctrl::Report { stream, loss_pct, jitter_ms } => {
                         if let Some(p) = shared.peers.lock().get_mut(&peer) {
                             p.remote_reports.insert(stream, (loss_pct, jitter_ms));
@@ -708,6 +862,54 @@ async fn session(
         })
     };
 
+    let uni = {
+        let shared = shared.clone();
+        let peer = peer.clone();
+        let conn = conn.clone();
+        let ctrl_tx = ctrl_tx.clone();
+        tokio::spawn(async move {
+            while let Ok(mut rs) = conn.accept_uni().await {
+                let shared = shared.clone();
+                let peer = peer.clone();
+                let ctrl_tx = ctrl_tx.clone();
+                tokio::spawn(async move {
+                    let mut h = [0u8; crate::video::HEADER];
+                    if rs.read_exact(&mut h).await.is_err() {
+                        return;
+                    }
+                    let Some((mut frame, len)) = crate::video::parse_header(&h) else { return };
+                    let mut data = vec![0u8; len];
+                    if rs.read_exact(&mut data).await.is_err() {
+                        return;
+                    }
+                    frame.data = data;
+                    deliver_video(&shared, &peer, frame, &ctrl_tx);
+                });
+            }
+        })
+    };
+
+    let video_gaps = {
+        let shared = shared.clone();
+        let peer = peer.clone();
+        let ctrl_tx = ctrl_tx.clone();
+        tokio::spawn(async move {
+            let mut iv = tokio::time::interval(Duration::from_millis(30));
+            loop {
+                iv.tick().await;
+                let mut subs = shared.video_subs.lock();
+                for ((p, stream), sub) in subs.iter_mut() {
+                    if *p != peer {
+                        continue;
+                    }
+                    let mut out = Vec::new();
+                    sub.reorder.flush(&mut out);
+                    emit_video(sub, *stream, out, &ctrl_tx);
+                }
+            }
+        })
+    };
+
     let pinger = {
         let ctrl_tx = ctrl_tx.clone();
         tokio::spawn(async move {
@@ -723,6 +925,8 @@ async fn session(
 
     let reason = conn.closed().await;
     pinger.abort();
+    uni.abort();
+    video_gaps.abort();
     datagrams.abort();
     reader.abort();
     writer.abort();

@@ -15,6 +15,11 @@ pub const VERSION: &str = match option_env!("RELAY_VERSION") {
 
 fn main() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).init();
+    if let Some(installed) = engine_proc::install_if_needed() {
+        // Hand over to the installed copy.
+        let _ = std::process::Command::new(installed).spawn();
+        return;
+    }
     engine_proc::ensure_running();
     Application::new().run(|cx: &mut App| {
         let bounds = Bounds::centered(None, size(px(1120.0), px(700.0)), cx);

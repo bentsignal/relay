@@ -8,6 +8,7 @@ mod denoise;
 mod engine;
 mod ipc;
 mod paths;
+mod updates;
 mod virt;
 
 use crossbeam_channel::{Receiver, Sender, select, tick, unbounded};
@@ -55,6 +56,13 @@ fn main() {
         return;
     }
     let _guard = init_logging();
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--watchdog") {
+        if let Some(v) = args.get(i + 1) {
+            updates::watchdog(v);
+        }
+        return;
+    }
     if relay_ipc::engine_running() {
         tracing::info!("an engine is already running");
         return;
@@ -123,7 +131,16 @@ fn control_loop(engine: &mut Engine, rx: Receiver<Event>, _tx: Sender<Event>) {
                             }
                         }
                         ClientMsg::Command(Command::Quit) => return,
-                        ClientMsg::Command(cmd) => engine.handle(cmd),
+                        ClientMsg::Command(cmd) => {
+                            engine.handle(cmd);
+                            if engine.quit {
+                                for c in &clients {
+                                    c.send(ServerMsg::Notice { text: "Restarting to update…".into(), error: false });
+                                }
+                                std::thread::sleep(Duration::from_millis(150));
+                                return;
+                            }
+                        }
                     },
                     Event::Shutdown => return,
                 }
@@ -139,6 +156,7 @@ fn control_loop(engine: &mut Engine, rx: Receiver<Event>, _tx: Sender<Event>) {
             }
         }
         engine.poll_network();
+        engine.poll_updates();
         for (text, error) in engine.notices.drain(..) {
             for c in &clients {
                 c.send(ServerMsg::Notice { text: text.clone(), error });

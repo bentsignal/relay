@@ -13,6 +13,7 @@ path = "src/main.rs"
 relay-proto = { workspace = true }
 relay-ipc = { workspace = true }
 relay-dsp = { workspace = true }
+relay-update = { workspace = true }
 gpui = { workspace = true }
 crossbeam-channel = { workspace = true }
 anyhow = { workspace = true }
