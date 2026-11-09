@@ -558,7 +558,8 @@ async fn dial(shared: Arc<Shared>, peer: String) {
             return;
         }
         p.dialing = true;
-        if !matches!(p.state, LinkState::Live | LinkState::Degraded(_)) {
+        let seen = p.last_seen.map(|t| t.elapsed() < Duration::from_secs(20)).unwrap_or(false);
+        if !matches!(p.state, LinkState::Live | LinkState::Degraded(_)) && (seen || !p.paired) {
             p.state = LinkState::Connecting;
         }
         p.addrs.clone()
@@ -575,7 +576,11 @@ async fn dial(shared: Arc<Shared>, peer: String) {
             && p.conn.is_none()
             && matches!(p.state, LinkState::Connecting | LinkState::Requesting)
         {
-            p.state = if p.paired && p.lost_at.is_some() {
+            let seen = p.last_seen.map(|t| t.elapsed() < Duration::from_secs(20)).unwrap_or(false);
+            p.state = if !seen && p.paired {
+                // Not on the network right now; it was only tried at its last address.
+                LinkState::Offline
+            } else if p.paired && p.lost_at.is_some() {
                 LinkState::Lost(short_err(&e))
             } else {
                 LinkState::Refused(short_err(&e))
