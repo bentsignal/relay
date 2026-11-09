@@ -6,9 +6,8 @@ use objc2_core_audio::{
     AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart, AudioDeviceStop,
     AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress, AudioObjectSetPropertyData,
     kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyDeviceUID, kAudioHardwarePropertyDefaultInputDevice,
-    kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDefaultSystemOutputDevice,
-    kAudioHardwarePropertyTranslateUIDToDevice, kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectSystemObject, kAudioObjectUnknown,
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyTranslateUIDToDevice,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, kAudioObjectUnknown,
 };
 use objc2_core_audio_types::{AudioBufferList, AudioTimeStamp};
 use objc2_core_foundation::{CFRetained, CFString};
@@ -84,11 +83,7 @@ pub fn device_uid(id: AudioObjectID) -> Option<String> {
 }
 
 fn default_selectors(input: bool) -> &'static [u32] {
-    if input {
-        &[kAudioHardwarePropertyDefaultInputDevice]
-    } else {
-        &[kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDefaultSystemOutputDevice]
-    }
+    if input { &[kAudioHardwarePropertyDefaultInputDevice] } else { &[kAudioHardwarePropertyDefaultOutputDevice] }
 }
 
 /// UID of the current default input or output device.
@@ -108,8 +103,8 @@ pub fn default_device_uid(input: bool) -> Option<String> {
     (status == 0 && id != kAudioObjectUnknown).then(|| device_uid(id)).flatten()
 }
 
-/// Makes the device with `uid` the default input or output (output also
-/// moves system sounds).
+/// Makes the device with `uid` the default input or output. The alert-sound
+/// device is left alone.
 pub fn set_default_device(uid: &str, input: bool) -> Result<()> {
     let Some(id) = device_by_uid(uid) else { bail!("device {uid} not found") };
     for &sel in default_selectors(input) {

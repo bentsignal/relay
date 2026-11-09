@@ -40,13 +40,18 @@ impl TimeRing {
 
     /// Stores interleaved stereo `data` for sample times `start..`.
     pub fn write(&self, start: i64, data: &[f32]) {
+        self.write_scaled(start, data, 1.0);
+    }
+
+    /// Like [`write`](Self::write), multiplying every sample by `gain`.
+    pub fn write_scaled(&self, start: i64, data: &[f32], gain: f32) {
         for (i, frame) in data.chunks_exact(2).enumerate() {
             let t = start + i as i64;
             let s = self.slot(t);
             self.stamps[s].store(INVALID, Ordering::Relaxed);
             fence(Ordering::Release);
-            self.samples[s * 2].store(frame[0].to_bits(), Ordering::Relaxed);
-            self.samples[s * 2 + 1].store(frame[1].to_bits(), Ordering::Relaxed);
+            self.samples[s * 2].store((frame[0] * gain).to_bits(), Ordering::Relaxed);
+            self.samples[s * 2 + 1].store((frame[1] * gain).to_bits(), Ordering::Relaxed);
             self.stamps[s].store(t, Ordering::Release);
         }
     }

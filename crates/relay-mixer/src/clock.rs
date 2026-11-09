@@ -237,3 +237,25 @@ pub mod platform {
         }
     }
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::platform;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn realtime_promotion_and_timer_work() {
+        std::thread::spawn(|| {
+            assert!(platform::promote_realtime(crate::BLOCK as u32).is_some(), "thread_policy_set failed");
+            let timer = platform::Timer::new();
+            let t0 = Instant::now();
+            let deadline = t0 + Duration::from_millis(5);
+            timer.sleep_until(deadline);
+            let late = Instant::now().saturating_duration_since(deadline);
+            assert!(Instant::now() >= deadline);
+            assert!(late < Duration::from_millis(20), "woke {late:?} late");
+        })
+        .join()
+        .unwrap();
+    }
+}

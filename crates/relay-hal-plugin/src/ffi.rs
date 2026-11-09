@@ -280,6 +280,19 @@ pub const kAudioStreamTerminalTypeLine: u32 = fourcc(b"line");
 pub const kAudioStreamTerminalTypeMicrophone: u32 = fourcc(b"micr");
 pub const kAudioStreamTerminalTypeSpeaker: u32 = fourcc(b"spkr");
 
+pub const kAudioLevelControlClassID: u32 = fourcc(b"levl");
+pub const kAudioVolumeControlClassID: u32 = fourcc(b"vlme");
+pub const kAudioBooleanControlClassID: u32 = fourcc(b"togl");
+pub const kAudioMuteControlClassID: u32 = fourcc(b"mute");
+pub const kAudioControlPropertyScope: u32 = fourcc(b"cscp");
+pub const kAudioControlPropertyElement: u32 = fourcc(b"celm");
+pub const kAudioLevelControlPropertyScalarValue: u32 = fourcc(b"lcsv");
+pub const kAudioLevelControlPropertyDecibelValue: u32 = fourcc(b"lcdv");
+pub const kAudioLevelControlPropertyDecibelRange: u32 = fourcc(b"lcdr");
+pub const kAudioLevelControlPropertyConvertScalarToDecibels: u32 = fourcc(b"lcsd");
+pub const kAudioLevelControlPropertyConvertDecibelsToScalar: u32 = fourcc(b"lcds");
+pub const kAudioBooleanControlPropertyValue: u32 = fourcc(b"bcvl");
+
 pub const kAudioFormatLinearPCM: u32 = fourcc(b"lpcm");
 pub const kAudioFormatFlagIsFloat: u32 = 1 << 0;
 pub const kAudioFormatFlagIsPacked: u32 = 1 << 3;
@@ -391,6 +404,18 @@ mod tests {
             (kAudioStreamTerminalTypeLine, ca::kAudioStreamTerminalTypeLine),
             (kAudioStreamTerminalTypeMicrophone, ca::kAudioStreamTerminalTypeMicrophone),
             (kAudioStreamTerminalTypeSpeaker, ca::kAudioStreamTerminalTypeSpeaker),
+            (kAudioLevelControlClassID, ca::kAudioLevelControlClassID),
+            (kAudioVolumeControlClassID, ca::kAudioVolumeControlClassID),
+            (kAudioBooleanControlClassID, ca::kAudioBooleanControlClassID),
+            (kAudioMuteControlClassID, ca::kAudioMuteControlClassID),
+            (kAudioControlPropertyScope, ca::kAudioControlPropertyScope),
+            (kAudioControlPropertyElement, ca::kAudioControlPropertyElement),
+            (kAudioLevelControlPropertyScalarValue, ca::kAudioLevelControlPropertyScalarValue),
+            (kAudioLevelControlPropertyDecibelValue, ca::kAudioLevelControlPropertyDecibelValue),
+            (kAudioLevelControlPropertyDecibelRange, ca::kAudioLevelControlPropertyDecibelRange),
+            (kAudioLevelControlPropertyConvertScalarToDecibels, ca::kAudioLevelControlPropertyConvertScalarToDecibels),
+            (kAudioLevelControlPropertyConvertDecibelsToScalar, ca::kAudioLevelControlPropertyConvertDecibelsToScalar),
+            (kAudioBooleanControlPropertyValue, ca::kAudioBooleanControlPropertyValue),
             (kAudioFormatLinearPCM, cat::kAudioFormatLinearPCM),
             (kAudioFormatFlagIsFloat, cat::kAudioFormatFlagIsFloat),
             (kAudioFormatFlagIsPacked, cat::kAudioFormatFlagIsPacked),

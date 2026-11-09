@@ -1,4 +1,8 @@
 //! Debug client: prints the engine state and meters.
+//!
+//!   relayctl [SECONDS] ['{"cmd":"set_route","strip":3,"bus":2,"on":true}' ...]
+//!
+//! Extra arguments are engine commands (JSON) sent after connecting.
 use relay_proto::{ClientMsg, ServerMsg};
 use std::time::{Duration, Instant};
 
@@ -6,6 +10,10 @@ fn main() -> std::io::Result<()> {
     let secs: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(5);
     let (client, rx) = relay_ipc::Client::connect("relayctl")?;
     client.send(&ClientMsg::Meters { on: true })?;
+    for arg in std::env::args().skip(2) {
+        let cmd: relay_proto::Command = serde_json::from_str(&arg).map_err(std::io::Error::other)?;
+        client.send(&ClientMsg::Command(cmd))?;
+    }
     let start = Instant::now();
     let mut last_meter = Instant::now();
     while start.elapsed() < Duration::from_secs(secs) {
@@ -16,10 +24,10 @@ fn main() -> std::io::Result<()> {
                     s.version, s.virtual_audio.state, s.virtual_audio.is_default, s.engine.cpu_pct
                 );
                 for st in &s.mixer.strips {
-                    println!("  strip {} {:?} {:?} routes={:?}", st.name, st.source, st.status, st.routes);
+                    println!("  strip #{} {} {:?} {:?} routes={:?}", st.id, st.name, st.source, st.status, st.routes);
                 }
                 for b in &s.mixer.buses {
-                    println!("  bus {} {:?} {:?}", b.name, b.sink, b.status);
+                    println!("  bus #{} {} {:?} {:?}", b.id, b.name, b.sink, b.status);
                 }
             }
             Ok(ServerMsg::Meters(m)) if last_meter.elapsed() > Duration::from_millis(500) => {

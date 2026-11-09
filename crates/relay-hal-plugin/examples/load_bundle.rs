@@ -254,6 +254,13 @@ mod mac {
             let main = drv.translate("relay.device.main");
             assert!(main != 0 && devices.contains(&main), "Relay should be published");
             assert_eq!(drv.string(main, b"lnam"), "Relay");
+            let controls = drv.ids(main, b"ctrl", b"glob");
+            let classes: Vec<String> = controls.iter().map(|&c| fcc(drv.u32(c, b"clas"))).collect();
+            println!(
+                "  Relay controls {controls:?} {classes:?}, volume {:?}",
+                f32::from_bits(drv.u32(controls[0], b"lcsv"))
+            );
+            assert_eq!(classes, ["vlme", "mute"]);
 
             // One loop: an app plays to Relay, the engine reads it; the engine
             // writes the mic, an app records Relay.

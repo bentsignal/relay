@@ -41,6 +41,21 @@ pub const MAIN_OUT: AudioObjectID = 4;
 pub const ENGINE: AudioObjectID = 5;
 pub const ENGINE_IN: AudioObjectID = 6;
 pub const ENGINE_OUT: AudioObjectID = 7;
+/// Output volume and mute of "Relay", so the keyboard volume keys work.
+pub const VOLUME: AudioObjectID = 8;
+pub const MUTE: AudioObjectID = 9;
+const MIN_DB: f32 = -64.0;
+
+/// Volume curve: gain = scalar², i.e. dB = 40·log10(scalar), floored at `MIN_DB`.
+pub fn scalar_to_db(scalar: f32) -> f32 {
+    let s = scalar.clamp(0.0, 1.0);
+    if s <= 0.0 { MIN_DB } else { (40.0 * s.log10()).max(MIN_DB) }
+}
+
+pub fn db_to_scalar(db: f32) -> f32 {
+    let db = db.clamp(MIN_DB, 0.0);
+    if db <= MIN_DB { 0.0 } else { 10f32.powf(db / 40.0) }
+}
 
 pub struct Device {
     pub id: AudioObjectID,
@@ -136,6 +151,9 @@ pub struct State {
     engine_last_io: AtomicU64,
     published: AtomicBool,
     monitor: AtomicBool,
+    /// Volume scalar (f32 bits) of "Relay"'s output.
+    volume: AtomicU32,
+    mute: AtomicBool,
 }
 
 impl State {
@@ -156,7 +174,31 @@ impl State {
             engine_last_io: AtomicU64::new(0),
             published: AtomicBool::new(false),
             monitor: AtomicBool::new(false),
+            volume: AtomicU32::new(1f32.to_bits()),
+            mute: AtomicBool::new(false),
         }
+    }
+
+    fn volume(&self) -> f32 {
+        f32::from_bits(self.volume.load(Ordering::Relaxed))
+    }
+
+    /// Linear gain applied to what apps play to "Relay".
+    fn output_gain(&self) -> f32 {
+        if self.mute.load(Ordering::Relaxed) {
+            return 0.0;
+        }
+        let s = self.volume();
+        if s <= 0.0 { 0.0 } else { s * s }
+    }
+
+    fn notify(&self, obj: AudioObjectID, selectors: &[u32]) {
+        let host = self.host.load(Ordering::Acquire);
+        if host.is_null() {
+            return;
+        }
+        let addrs: Vec<_> = selectors.iter().map(|&s| address(s, kAudioObjectPropertyScopeGlobal)).collect();
+        unsafe { ((*host).PropertiesChanged)(host, obj, addrs.len() as u32, addrs.as_ptr()) };
     }
 
     fn published(&self) -> bool {
@@ -197,14 +239,7 @@ impl State {
             return false;
         }
         log(if want { "engine running: publishing Relay" } else { "engine stopped: withdrawing Relay" });
-        let host = self.host.load(Ordering::Acquire);
-        if !host.is_null() {
-            let addrs = [
-                address(kAudioPlugInPropertyDeviceList, kAudioObjectPropertyScopeGlobal),
-                address(kAudioObjectPropertyOwnedObjects, kAudioObjectPropertyScopeGlobal),
-            ];
-            unsafe { ((*host).PropertiesChanged)(host, PLUGIN, addrs.len() as u32, addrs.as_ptr()) };
-        }
+        self.notify(PLUGIN, &[kAudioPlugInPropertyDeviceList, kAudioObjectPropertyOwnedObjects]);
         true
     }
 
@@ -244,6 +279,7 @@ fn log(msg: &str) {
 
 pub enum Value {
     U32(u32),
+    F32(f32),
     F64(f64),
     Str(&'static str),
     U32s(Vec<u32>),
@@ -257,7 +293,7 @@ impl Value {
     fn size(&self) -> usize {
         use std::mem::size_of;
         match self {
-            Value::U32(_) => 4,
+            Value::U32(_) | Value::F32(_) => 4,
             Value::F64(_) => 8,
             Value::Str(_) => size_of::<CFStringRef>(),
             Value::U32s(v) => v.len() * 4,
@@ -284,6 +320,7 @@ impl Value {
         unsafe {
             match self {
                 Value::U32(v) => scalar(*v, out, cap),
+                Value::F32(v) => scalar(*v, out, cap),
                 Value::F64(v) => scalar(*v, out, cap),
                 Value::Format(v) => scalar(*v, out, cap),
                 Value::Str(s) => {
@@ -349,14 +386,21 @@ pub fn property(
             }
         };
         let main = d.id == MAIN;
+        let controls = || -> Vec<u32> {
+            match (main, scope) {
+                (true, kAudioObjectPropertyScopeGlobal | kAudioObjectPropertyScopeOutput) => vec![VOLUME, MUTE],
+                _ => Vec::new(),
+            }
+        };
         return match sel {
             kAudioObjectPropertyBaseClass => Ok(U32(kAudioObjectClassID)),
             kAudioObjectPropertyClass => Ok(U32(kAudioDeviceClassID)),
             kAudioObjectPropertyOwner => Ok(U32(PLUGIN)),
             kAudioObjectPropertyName => Ok(Str(d.name)),
             kAudioObjectPropertyManufacturer => Ok(Str(MANUFACTURER)),
-            kAudioObjectPropertyOwnedObjects | kAudioDevicePropertyStreams => Ok(U32s(streams())),
-            kAudioObjectPropertyControlList => Ok(U32s(Vec::new())),
+            kAudioDevicePropertyStreams => Ok(U32s(streams())),
+            kAudioObjectPropertyOwnedObjects => Ok(U32s([streams(), controls()].concat())),
+            kAudioObjectPropertyControlList => Ok(U32s(if main { vec![VOLUME, MUTE] } else { Vec::new() })),
             kAudioDevicePropertyDeviceUID => Ok(Str(d.uid)),
             kAudioDevicePropertyModelUID => Ok(Str(MODEL_UID)),
             kAudioDevicePropertyTransportType => Ok(U32(kAudioDeviceTransportTypeVirtual)),
@@ -402,11 +446,45 @@ pub fn property(
             _ => unknown,
         };
     }
+    if obj == VOLUME || obj == MUTE {
+        let common = match sel {
+            kAudioObjectPropertyBaseClass => {
+                Some(U32(if obj == VOLUME { kAudioLevelControlClassID } else { kAudioBooleanControlClassID }))
+            }
+            kAudioObjectPropertyClass => {
+                Some(U32(if obj == VOLUME { kAudioVolumeControlClassID } else { kAudioMuteControlClassID }))
+            }
+            kAudioObjectPropertyOwner => Some(U32(MAIN)),
+            kAudioObjectPropertyOwnedObjects => Some(U32s(Vec::new())),
+            kAudioControlPropertyScope => Some(U32(kAudioObjectPropertyScopeOutput)),
+            kAudioControlPropertyElement => Some(U32(kAudioObjectPropertyElementMain)),
+            _ => None,
+        };
+        if let Some(v) = common {
+            return Ok(v);
+        }
+        return match (obj, sel) {
+            (VOLUME, kAudioLevelControlPropertyScalarValue) => Ok(F32(st.volume())),
+            (VOLUME, kAudioLevelControlPropertyDecibelValue) => Ok(F32(scalar_to_db(st.volume()))),
+            (VOLUME, kAudioLevelControlPropertyDecibelRange) => {
+                Ok(Ranges(vec![AudioValueRange { mMinimum: MIN_DB as f64, mMaximum: 0.0 }]))
+            }
+            // The value to convert arrives in the output buffer; see get_property_data.
+            (VOLUME, kAudioLevelControlPropertyConvertScalarToDecibels)
+            | (VOLUME, kAudioLevelControlPropertyConvertDecibelsToScalar) => Ok(F32(0.0)),
+            (MUTE, kAudioBooleanControlPropertyValue) => Ok(U32(st.mute.load(Ordering::Relaxed) as u32)),
+            _ => unknown,
+        };
+    }
     Err(kAudioHardwareBadObjectError)
 }
 
 fn settable(obj: AudioObjectID, sel: u32) -> bool {
-    (device(obj).is_some() && sel == kAudioDevicePropertyNominalSampleRate)
+    matches!(
+        (obj, sel),
+        (VOLUME, kAudioLevelControlPropertyScalarValue | kAudioLevelControlPropertyDecibelValue)
+            | (MUTE, kAudioBooleanControlPropertyValue)
+    ) || (device(obj).is_some() && sel == kAudioDevicePropertyNominalSampleRate)
         || (stream(obj).is_some()
             && matches!(sel, kAudioStreamPropertyVirtualFormat | kAudioStreamPropertyPhysicalFormat))
 }
@@ -650,7 +728,29 @@ unsafe extern "C" fn get_property_data(
     if !is_ours(d) || addr.is_null() || out_size.is_null() || out.is_null() {
         return kAudioHardwareBadObjectError;
     }
-    match property(state(), obj, unsafe { &*addr }, unsafe { qualifier(qual_size, qual) }) {
+    let addr = unsafe { &*addr };
+    if obj == VOLUME
+        && matches!(
+            addr.mSelector,
+            kAudioLevelControlPropertyConvertScalarToDecibels | kAudioLevelControlPropertyConvertDecibelsToScalar
+        )
+    {
+        if in_size < 4 {
+            return kAudioHardwareBadPropertySizeError;
+        }
+        let v = unsafe { (out as *const f32).read_unaligned() };
+        let converted = if addr.mSelector == kAudioLevelControlPropertyConvertScalarToDecibels {
+            scalar_to_db(v)
+        } else {
+            db_to_scalar(v)
+        };
+        unsafe {
+            (out as *mut f32).write_unaligned(converted);
+            *out_size = 4;
+        }
+        return kAudioHardwareNoError;
+    }
+    match property(state(), obj, addr, unsafe { qualifier(qual_size, qual) }) {
         Ok(v) => match unsafe { v.write(out, in_size as usize) } {
             Ok(n) => {
                 unsafe { *out_size = n as u32 };
@@ -685,7 +785,36 @@ unsafe extern "C" fn set_property_data(
     if data.is_null() {
         return kAudioHardwareBadPropertySizeError;
     }
+    let st = state();
     match addr.mSelector {
+        kAudioLevelControlPropertyScalarValue | kAudioLevelControlPropertyDecibelValue => {
+            if in_size < 4 {
+                return kAudioHardwareBadPropertySizeError;
+            }
+            let v = unsafe { (data as *const f32).read_unaligned() };
+            let scalar = if addr.mSelector == kAudioLevelControlPropertyScalarValue {
+                v.clamp(0.0, 1.0)
+            } else {
+                db_to_scalar(v)
+            };
+            if !scalar.is_finite() {
+                return kAudioHardwareIllegalOperationError;
+            }
+            if st.volume.swap(scalar.to_bits(), Ordering::Relaxed) != scalar.to_bits() {
+                st.notify(VOLUME, &[kAudioLevelControlPropertyScalarValue, kAudioLevelControlPropertyDecibelValue]);
+            }
+            kAudioHardwareNoError
+        }
+        kAudioBooleanControlPropertyValue => {
+            if in_size < 4 {
+                return kAudioHardwareBadPropertySizeError;
+            }
+            let on = unsafe { (data as *const u32).read_unaligned() } != 0;
+            if st.mute.swap(on, Ordering::Relaxed) != on {
+                st.notify(MUTE, &[kAudioBooleanControlPropertyValue]);
+            }
+            kAudioHardwareNoError
+        }
         kAudioDevicePropertyNominalSampleRate => {
             if (in_size as usize) < 8 {
                 return kAudioHardwareBadPropertySizeError;
@@ -835,7 +964,8 @@ unsafe extern "C" fn do_io_operation(
         }
         kAudioServerPlugInIOOperationWriteMix => {
             let buf = unsafe { std::slice::from_raw_parts(main as *const f32, len) };
-            to.write(info.mOutputTime.mSampleTime.round() as i64, buf);
+            let gain = if dev == MAIN { st.output_gain() } else { 1.0 };
+            to.write_scaled(info.mOutputTime.mSampleTime.round() as i64, buf, gain);
         }
         _ => {}
     }
@@ -845,6 +975,9 @@ unsafe extern "C" fn do_io_operation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Serializes tests that touch the global driver state.
+    static GLOBAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn get(st: &State, obj: AudioObjectID, sel: u32) -> Value {
         property(st, obj, &address(sel, kAudioObjectPropertyScopeGlobal), None).unwrap_or_else(|e| {
@@ -908,6 +1041,52 @@ mod tests {
     }
 
     #[test]
+    fn volume_curve_round_trips() {
+        assert_eq!(scalar_to_db(1.0), 0.0);
+        assert_eq!(scalar_to_db(0.0), MIN_DB);
+        assert!((scalar_to_db(0.5) - -12.04).abs() < 0.01);
+        for s in [0.05f32, 0.3, 0.5, 0.9, 1.0] {
+            assert!((db_to_scalar(scalar_to_db(s)) - s).abs() < 1e-4);
+        }
+        assert_eq!(db_to_scalar(MIN_DB), 0.0);
+    }
+
+    #[test]
+    fn volume_and_mute_scale_relay_output() {
+        let _g = GLOBAL.lock().unwrap_or_else(|e| e.into_inner());
+        let d = driver_ref();
+        let st = state();
+        let set = |obj, sel, v: u32| unsafe {
+            set_property_data(
+                d,
+                obj,
+                0,
+                &address(sel, kAudioObjectPropertyScopeGlobal),
+                0,
+                std::ptr::null(),
+                4,
+                (&v as *const u32).cast(),
+            )
+        };
+        assert_eq!(set(VOLUME, kAudioLevelControlPropertyScalarValue, 0.5f32.to_bits()), 0);
+        assert_eq!(st.output_gain(), 0.25);
+        assert_eq!(set(MUTE, kAudioBooleanControlPropertyValue, 1), 0);
+        assert_eq!(st.output_gain(), 0.0);
+        assert_eq!(set(MUTE, kAudioBooleanControlPropertyValue, 0), 0);
+        assert_eq!(set(VOLUME, kAudioLevelControlPropertyDecibelValue, 0f32.to_bits()), 0);
+        assert_eq!(st.output_gain(), 1.0);
+        let mut v = 0.5f32;
+        let mut size = 0u32;
+        let addr = address(kAudioLevelControlPropertyConvertScalarToDecibels, kAudioObjectPropertyScopeGlobal);
+        unsafe {
+            get_property_data(d, VOLUME, 0, &addr, 0, std::ptr::null(), 4, &mut size, (&mut v as *mut f32).cast())
+        };
+        assert!((v - scalar_to_db(0.5)).abs() < 1e-6);
+        assert!(ids(get(st, MAIN, kAudioObjectPropertyControlList)).contains(&VOLUME));
+        assert!(ids(get(st, ENGINE, kAudioObjectPropertyControlList)).is_empty());
+    }
+
+    #[test]
     fn stream_scopes() {
         let st = State::new();
         let scoped = |scope| ids(property(&st, MAIN, &address(kAudioDevicePropertyStreams, scope), None).unwrap());
@@ -929,6 +1108,7 @@ mod tests {
 
     #[test]
     fn io_loops_between_devices() {
+        let _g = GLOBAL.lock().unwrap_or_else(|e| e.into_inner());
         let d = driver_ref();
         let frames = 64u32;
         let mut info: AudioServerPlugInIOCycleInfo = unsafe { std::mem::zeroed() };
