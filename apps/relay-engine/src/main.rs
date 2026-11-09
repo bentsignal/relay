@@ -72,7 +72,9 @@ fn main() {
         tracing::error!("panic: {info}");
     }));
     tracing::info!(version = VERSION, "Relay engine starting");
-    if let Err(e) = run() {
+    // On macOS the main thread runs AppKit for video viewer windows and the
+    // engine runs on a secondary thread; elsewhere this just calls `run`.
+    if let Err(e) = relay_video::run_app(run) {
         tracing::error!("engine failed: {e:#}");
         std::process::exit(1);
     }
