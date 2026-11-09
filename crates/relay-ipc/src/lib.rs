@@ -70,7 +70,10 @@ pub struct Listener {
 impl Listener {
     pub fn bind() -> io::Result<Self> {
         let name = socket_name();
-        let inner = ListenerOptions::new().name(name.to_ns_name::<GenericNamespaced>()?).create_sync()?;
+        // A socket file left behind by a crashed engine would block startup on
+        // Unix; callers only bind after checking no engine is answering.
+        let inner =
+            ListenerOptions::new().name(name.to_ns_name::<GenericNamespaced>()?).try_overwrite(true).create_sync()?;
         Ok(Self { inner })
     }
 
