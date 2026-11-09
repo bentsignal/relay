@@ -334,6 +334,13 @@ impl NetHandle {
         rx
     }
 
+    /// Asks `peer` for a fresh keyframe on video `stream`.
+    pub fn request_keyframe(&self, peer: &str, stream: u32) {
+        if let Some(c) = self.shared.peers.lock().get(peer).and_then(|p| p.ctrl.clone()) {
+            let _ = c.send(Ctrl::Keyframe { stream });
+        }
+    }
+
     pub fn link_state(&self, peer: &str) -> Option<LinkState> {
         self.shared.peers.lock().get(peer).map(|p| p.state.clone())
     }

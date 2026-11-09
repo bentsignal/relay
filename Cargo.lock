@@ -5048,6 +5048,7 @@ dependencies = [
  "relay-proto",
  "relay-update",
  "relay-usbip",
+ "relay-video",
  "serde",
  "serde_json",
  "tracing",
@@ -5150,6 +5151,20 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "relay-video"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "parking_lot",
+ "relay-proto",
+ "tracing",
+ "tracing-subscriber",
+ "windows 0.62.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

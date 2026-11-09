@@ -52,6 +52,7 @@ pub struct Engine {
     pub update: Update,
     updater: crate::updates::Updater,
     pub quit: bool,
+    video_mgr: crate::video::VideoMgr,
     pub net: Option<relay_net::NetHandle>,
     net_events: Option<crossbeam_channel::Receiver<relay_net::NetEvent>>,
 }
@@ -95,6 +96,7 @@ impl Engine {
             update: Update::default(),
             updater: crate::updates::Updater::start(channel),
             quit: false,
+            video_mgr: crate::video::VideoMgr::default(),
             net: None,
             net_events: None,
         };
@@ -515,6 +517,41 @@ impl Engine {
                     n.reject(&peer);
                 }
             }
+            Command::StartVideo { source, peer, with_audio } => {
+                let Some(net) = self.net.as_ref() else {
+                    self.notices.push(("Network is off".into(), true));
+                    return;
+                };
+                let name =
+                    self.video.sources.iter().find(|s| s.key == source).map(|s| s.name.clone()).unwrap_or_default();
+                if let Err(e) = self.video_mgr.start(net, &source, &peer, with_audio, &name) {
+                    self.notices.push((e, true));
+                }
+                if with_audio
+                    && !self.cfg.mixer.buses.iter().any(|b| matches!(&b.sink, Sink::Network { peer: p } if *p == peer))
+                {
+                    // Send this device's sound along with the picture.
+                    self.handle(Command::AddBus { sink: Sink::Network { peer: peer.clone() } });
+                    if let Some(bus) = self.cfg.mixer.buses.last().map(|b| b.id) {
+                        let desktop: Vec<StripId> = self
+                            .cfg
+                            .mixer
+                            .strips
+                            .iter()
+                            .filter(|s| matches!(s.source, Source::Virtual { .. } | Source::Loopback { .. }))
+                            .map(|s| s.id)
+                            .collect();
+                        for strip in desktop {
+                            self.handle(Command::SetRoute { strip, bus, on: true });
+                        }
+                    }
+                }
+                self.dirty = true;
+            }
+            Command::StopVideo { id } => {
+                self.video_mgr.stop(id);
+                self.dirty = true;
+            }
             Command::ForgetPeer { peer } => {
                 if let Some(n) = &self.net {
                     n.forget(&peer);
@@ -609,6 +646,7 @@ impl Engine {
             self.dirty = true;
         }
         self.apply_relay_defaults();
+        self.refresh_video();
 
         // Engine load.
         let m = self.graph.meters();
@@ -674,7 +712,21 @@ impl Engine {
         self.dirty = true;
     }
 
+    pub fn poll_video(&mut self) {
+        self.video_mgr.poll(self.net.as_ref());
+    }
+
+    /// Refreshes video state for the UI.
+    pub fn refresh_video(&mut self) {
+        let v = self.video_mgr.state();
+        if v != self.video {
+            self.video = v;
+            self.dirty = true;
+        }
+    }
+
     pub fn stop_network(&mut self) {
+        self.video_mgr.clear();
         self.net = None;
         self.net_events = None;
         self.network.peers.clear();
@@ -727,7 +779,18 @@ impl Engine {
                     self.changed();
                 }
                 relay_net::NetEvent::IncomingStream { peer, stream, kind, name } => {
-                    if kind != StreamKind::Audio {
+                    if kind == StreamKind::Video {
+                        let peer_name = self
+                            .network
+                            .peers
+                            .iter()
+                            .find(|p| p.id == peer)
+                            .map(|p| p.name.clone())
+                            .unwrap_or_default();
+                        if let Some(net) = self.net.as_ref() {
+                            self.video_mgr.on_incoming(net, &peer, stream, &name, &peer_name);
+                        }
+                        self.dirty = true;
                         continue;
                     }
                     let exists = self.cfg.mixer.strips.iter().any(
@@ -761,7 +824,8 @@ impl Engine {
                         self.changed();
                     }
                 }
-                relay_net::NetEvent::StreamEnded { .. } => {
+                relay_net::NetEvent::StreamEnded { peer, stream } => {
+                    self.video_mgr.on_ended(&peer, stream);
                     self.dirty = true;
                 }
             }

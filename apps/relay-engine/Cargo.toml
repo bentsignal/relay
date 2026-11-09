@@ -17,6 +17,7 @@ relay-audio = { workspace = true }
 relay-ipc = { workspace = true }
 relay-net = { workspace = true }
 relay-update = { workspace = true }
+relay-video = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

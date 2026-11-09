@@ -9,6 +9,7 @@ mod engine;
 mod ipc;
 mod paths;
 mod updates;
+mod video;
 mod virt;
 
 use crossbeam_channel::{Receiver, Sender, select, tick, unbounded};
@@ -156,6 +157,7 @@ fn control_loop(engine: &mut Engine, rx: Receiver<Event>, _tx: Sender<Event>) {
             }
         }
         engine.poll_network();
+        engine.poll_video();
         engine.poll_updates();
         for (text, error) in engine.notices.drain(..) {
             for c in &clients {
