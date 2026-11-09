@@ -4041,6 +4041,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1eebcea8b0dbff5f7c8504f3107c68fc061a3eb44932051c8cf8a68d969c3b2"
 dependencies = [
  "dispatch2",
+ "libc",
  "objc2",
  "objc2-core-audio-types",
  "objc2-core-foundation",
@@ -5016,6 +5017,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cpal",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
  "parking_lot",
  "relay-dsp",
  "relay-mixer",
@@ -5058,6 +5062,15 @@ dependencies = [
  "tracing-subscriber",
  "windows 0.62.2",
  "winresource",
+]
+
+[[package]]
+name = "relay-hal-plugin"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
 ]
 
 [[package]]

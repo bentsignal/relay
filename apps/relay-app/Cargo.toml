@@ -22,3 +22,7 @@ tracing-subscriber = { workspace = true }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"
+
+# Compile Metal shaders at runtime so building doesn't need Xcode's Metal toolchain.
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui = { workspace = true, features = ["runtime_shaders"] }
