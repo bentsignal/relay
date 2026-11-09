@@ -22,6 +22,7 @@ Things that aren't obvious from the code.
 - Each network hop (Opus 5 ms frames, jitter buffer, drift bridge) adds about 12–13 ms on loopback.
 - Screen capture: 2560×1440 → 1080p60 H.264 on the NVIDIA encoder at 60 fps, decoded and shown in the viewer at 60 fps.
 - Idle engine: ~33 MB RAM; mixer thread ~3% of one core with 4 inputs and 4 outputs.
+- Real LAN, Windows PC (wired) ↔ MacBook Air, 2026-11-08: paired via discovery + Connect/Allow; the Mac reconnected on its own after its engine restarted. Audio tone held a steady level on the Mac. Video PC→Mac 1080p60 and Mac→PC 1668×1080 at ~56 fps, both decoded in the viewers; 0% loss, <1 ms jitter, ~1 ms RTT.
 
 ## Updates
 
