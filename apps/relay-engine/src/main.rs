@@ -8,6 +8,8 @@ mod denoise;
 mod engine;
 mod ipc;
 mod paths;
+#[cfg(windows)]
+mod tray;
 mod updates;
 mod video;
 mod virt;
@@ -83,6 +85,10 @@ fn run() -> anyhow::Result<()> {
     let mut engine = Engine::new(cfg)?;
     let (tx, rx) = unbounded::<Event>();
     ipc::spawn(tx.clone())?;
+    #[cfg(windows)]
+    if std::env::var_os("RELAY_NO_TRAY").is_none() {
+        tray::spawn(tx.clone());
+    }
     install_ctrlc(tx.clone());
     control_loop(&mut engine, rx, tx);
     if let Err(e) = engine.cfg.save(&paths::config_file()) {

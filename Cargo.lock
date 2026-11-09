@@ -5056,6 +5056,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "windows 0.62.2",
  "winresource",
 ]
 

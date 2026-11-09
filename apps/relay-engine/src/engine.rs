@@ -156,12 +156,21 @@ impl Engine {
                 Some(r) => bridged(r, BridgeTuning::network()),
                 None => (Box::new(Silence), Live::None),
             },
-            #[cfg(windows)]
-            Source::App { process } => match relay_audio::windows::open_app(process) {
-                Ok((stream, reader)) => (Box::new(InputBridge::new(reader, tuning)), Live::Device(stream)),
-                Err(_) => (Box::new(Silence), Live::None),
-            },
-            Source::App { .. } | Source::None => (Box::new(Silence), Live::None),
+            Source::App { process } => {
+                #[cfg(windows)]
+                {
+                    match relay_audio::windows::open_app(process) {
+                        Ok((stream, reader)) => (Box::new(InputBridge::new(reader, tuning)), Live::Device(stream)),
+                        Err(_) => (Box::new(Silence), Live::None),
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    let _ = process;
+                    (Box::new(Silence), Live::None)
+                }
+            }
+            Source::None => (Box::new(Silence), Live::None),
         }
     }
 
