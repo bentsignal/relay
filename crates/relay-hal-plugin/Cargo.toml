@@ -1,0 +1,24 @@
+[package]
+name = "relay-hal-plugin"
+description = "Relay's CoreAudio AudioServerPlugIn: the \"Relay\" virtual speaker and microphone on macOS"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
+# Only used by tests that check the hand-written CoreAudio constants. The plugin
+# itself must not link CoreAudio.framework (it runs inside the audio server).
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2-core-audio = { version = "0.3", default-features = false, features = [
+    "std",
+    "AudioHardware",
+    "AudioServerPlugIn",
+    "objc2-core-audio-types",
+    "libc",
+] }
+objc2-core-audio-types = { version = "0.3", default-features = false, features = ["std", "CoreAudioBaseTypes"] }
