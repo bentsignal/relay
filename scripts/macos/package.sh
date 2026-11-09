@@ -15,7 +15,7 @@ rm -rf "$dist/stage-macos"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp target/release/relay target/release/relay-engine "$app/Contents/MacOS/"
 if [[ -f scripts/macos/build-hal-plugin.sh ]]; then
-  bash scripts/macos/build-hal-plugin.sh "$app/Contents/Resources"
+  bash scripts/macos/build-hal-plugin.sh --out "$app/Contents/Resources"
 fi
 iconset="$dist/relay.iconset"
 rm -rf "$iconset" && mkdir -p "$iconset"
