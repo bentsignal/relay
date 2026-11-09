@@ -12,6 +12,35 @@ use relay_proto::{EncodedVideo, VideoSource};
 #[cfg(windows)]
 pub mod windows;
 
+/// Viewer windows for incoming video. Same API on every platform:
+/// `open(title) -> Result<Viewer>`, `Viewer::push(EncodedVideo) -> bool`
+/// (false once closed), `is_open()`, `take_keyframe_request()`.
+#[cfg(windows)]
+pub mod viewer {
+    pub use crate::windows::viewer::{Viewer, open};
+}
+
+/// Placeholder until the macOS viewer (AVSampleBufferDisplayLayer) lands.
+#[cfg(target_os = "macos")]
+pub mod viewer {
+    use relay_proto::EncodedVideo;
+    pub struct Viewer;
+    impl Viewer {
+        pub fn push(&self, _f: EncodedVideo) -> bool {
+            false
+        }
+        pub fn is_open(&self) -> bool {
+            false
+        }
+        pub fn take_keyframe_request(&self) -> bool {
+            false
+        }
+    }
+    pub fn open(_title: &str) -> anyhow::Result<Viewer> {
+        anyhow::bail!("video viewing isn't available on macOS yet")
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Settings {
     pub fps: u32,

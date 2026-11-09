@@ -106,9 +106,9 @@ impl VideoMgr {
         let title = if name.is_empty() { peer_name.to_string() } else { format!("{peer_name} · {name}") };
         let (s2, k2, o2) = (stop.clone(), need_key.clone(), open.clone());
         let _ = std::thread::Builder::new().name("relay-video-recv".into()).spawn(move || {
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             {
-                let viewer = match relay_video::windows::viewer::open(&title) {
+                let viewer = match relay_video::viewer::open(&title) {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::warn!("viewer failed: {e:#}");
@@ -135,7 +135,7 @@ impl VideoMgr {
                     }
                 }
             }
-            #[cfg(not(windows))]
+            #[cfg(not(any(windows, target_os = "macos")))]
             {
                 let _ = (rx, s2, k2, title);
                 tracing::warn!("no video viewer on this platform yet");
