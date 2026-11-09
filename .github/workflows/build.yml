@@ -53,7 +53,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install binary-refinery
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --release
       - run: pwsh scripts/windows/package.ps1
       - uses: actions/upload-artifact@v4
         with:
@@ -87,7 +87,7 @@ jobs:
             openssl pkcs12 -in "$RUNNER_TEMP/relay.p12" -nokeys -passin "pass:$P12_PASSWORD" -out "$RUNNER_TEMP/cert.pem"
           sudo security add-trusted-cert -d -r trustRoot -p codeSign -k /Library/Keychains/System.keychain "$RUNNER_TEMP/cert.pem"
           echo "MACOS_SIGN_IDENTITY=Relay Self-Signed" >> "$GITHUB_ENV"
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --release
       - run: bash scripts/macos/package.sh
       - uses: actions/upload-artifact@v4
         with:
