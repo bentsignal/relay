@@ -1,7 +1,9 @@
 //! A plain Win32 window that decodes and shows incoming video with minimal
 //! latency: compressed frames in, D3D11 flip-model swap chain out.
 //! Double-click toggles full screen; Esc leaves it.
+//! Every viewer also feeds the Relay Camera (the newest stream wins).
 
+use super::camera::{CameraFeed, owner};
 use super::convert::Converter;
 use super::decode::{Decoded, Decoder};
 use super::{Gpu, create_device};
@@ -46,6 +48,11 @@ impl Viewer {
         !self.state.closed.load(Ordering::Relaxed)
     }
 
+    /// This stream is what the Relay Camera shows.
+    pub fn is_camera(&self) -> bool {
+        self.state.camera.load(Ordering::Relaxed)
+    }
+
     /// True (once) after the viewer had to drop frames and needs a keyframe.
     pub fn take_keyframe_request(&self) -> bool {
         self.state.need_key.swap(false, Ordering::Relaxed)
@@ -61,6 +68,7 @@ impl Drop for Viewer {
 struct WindowState {
     closed: AtomicBool,
     need_key: AtomicBool,
+    camera: AtomicBool,
     width: AtomicU32,
     height: AtomicU32,
     fullscreen: AtomicBool,
@@ -72,6 +80,7 @@ pub fn open(title: &str) -> Result<Viewer> {
     let state = Arc::new(WindowState {
         closed: AtomicBool::new(false),
         need_key: AtomicBool::new(false),
+        camera: AtomicBool::new(false),
         width: AtomicU32::new(1280),
         height: AtomicU32::new(720),
         fullscreen: AtomicBool::new(false),
@@ -239,6 +248,17 @@ fn run(title: &str, rx: Receiver<ViewerMsg>, state: Arc<WindowState>, ready: &Se
     let mut swap_size = (0u32, 0u32);
     let mut decoded: Vec<Decoded> = Vec::new();
     let mut last: Option<Decoded> = None;
+    let mut last_pts = 0i64;
+    // Camera: claimed when our first picture decodes, released when we stop.
+    struct Release(u64);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            owner::release(self.0);
+        }
+    }
+    let cam = Release(owner::new_id());
+    let mut claimed = false;
+    let mut feed = CameraFeed::new();
     loop {
         unsafe {
             let mut msg = MSG::default();
@@ -283,11 +303,25 @@ fn run(title: &str, rx: Receiver<ViewerMsg>, state: Arc<WindowState>, ready: &Se
                 }
                 if let Some(d) = decoded.drain(..).last() {
                     last = Some(d);
+                    last_pts = f.pts_us as i64 * 10;
                     redraw = true;
+                    if !claimed {
+                        owner::claim(cam.0);
+                        claimed = true;
+                    }
                 }
                 // Skip straight to the newest frame if more are queued.
             }
             None => {}
+        }
+        let is_camera = claimed && owner::check(cam.0);
+        state.camera.store(is_camera, Ordering::Relaxed);
+        if is_camera
+            && let Some(frame) = &last
+            && (redraw || !feed.pushed_within(Duration::from_millis(250)))
+            && let Err(e) = feed.push(&gpu, &frame.texture, frame.slice, frame.width, frame.height, last_pts)
+        {
+            tracing::debug!("camera feed: {e:#}");
         }
         let win = (state.width.load(Ordering::Relaxed).max(1), state.height.load(Ordering::Relaxed).max(1));
         if win != swap_size {

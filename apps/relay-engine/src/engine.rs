@@ -659,6 +659,10 @@ impl Engine {
         let before = self.virt.state();
         self.virt.tick();
         let virt_changed = self.virt.state() != before;
+        if virt_changed && before == VirtualAudioState::Installing {
+            // The one-time install also sets up the Relay Camera.
+            self.video_mgr.recheck_camera();
+        }
 
         self.ticks += 1;
         // Device scans cost a few ms of COM calls; every other tick is plenty.

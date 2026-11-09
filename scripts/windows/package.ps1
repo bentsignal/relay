@@ -1,5 +1,7 @@
 # Builds Relay for Windows and writes dist\relay-windows-x64.zip.
 # Env: RELAY_VERSION (optional) is baked into the binaries.
+# Also builds the Relay Camera media source (needs Visual Studio's C++ tools and
+# CMake; see build-camera.ps1).
 param([switch]$SkipBuild)
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
@@ -8,13 +10,19 @@ if (-not $SkipBuild) {
     cargo build --release --locked -p relay-engine -p relay-app
     if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 }
+$cameraDll = Join-Path $root 'target\camera\relay-camera.dll'
+if (-not $SkipBuild -or -not (Test-Path $cameraDll)) {
+    & (Join-Path $PSScriptRoot 'build-camera.ps1')
+}
 $dist = Join-Path $root 'dist'
 $stage = Join-Path $dist 'stage-windows'
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force (Join-Path $stage 'usbip') | Out-Null
 python scripts\windows\fetch-usbip.py (Join-Path $stage 'usbip')
 if ($LASTEXITCODE -ne 0) { throw 'fetching usbip-win2 failed' }
-Copy-Item scripts\windows\install-driver.ps1 (Join-Path $stage 'usbip')
+Copy-Item scripts\windows\install-driver.ps1, scripts\windows\install-camera.ps1 (Join-Path $stage 'usbip')
+New-Item -ItemType Directory -Force (Join-Path $stage 'camera') | Out-Null
+Copy-Item $cameraDll, native\windows\virtual-camera\LICENSE-Windows-Camera-sample.txt (Join-Path $stage 'camera')
 Copy-Item target\release\relay.exe, target\release\relay-engine.exe $stage
 Copy-Item LICENSE, THIRD-PARTY-NOTICES.md $stage
 $zip = Join-Path $dist 'relay-windows-x64.zip'

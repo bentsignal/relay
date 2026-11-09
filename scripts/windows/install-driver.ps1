@@ -2,7 +2,9 @@
 #  1. Installs the Microsoft-signed usbip-win2 virtual USB host controller,
 #     which lets Relay plug in its own user-mode audio devices.
 #     The filter package is only staged, so existing USB hubs aren't restarted.
-#  2. Lets Relay's LAN traffic through Windows Firewall on private networks.
+#  2. Lets Relay's LAN traffic through Windows Firewall (pairing still requires approval).
+#  3. Installs the Relay Camera media source (install-camera.ps1), so incoming
+#     video can be used as a webcam.
 # Exit code 0 on success. A log is written next to this script's parent temp dir.
 
 $ErrorActionPreference = 'Stop'
@@ -46,6 +48,12 @@ try {
     New-NetFirewallRule -DisplayName 'Relay (LAN)' -Direction Inbound -Protocol UDP -LocalPort 47800,47801,5353 `
         -Profile Any -Action Allow | Out-Null
     "Firewall rule added" | Out-File $log -Append
+
+    $camera = Join-Path $dir 'install-camera.ps1'
+    if (Test-Path -LiteralPath $camera) {
+        & $camera -Log $log
+        if ($LASTEXITCODE -ne 0) { throw "Installing the Relay Camera failed ($LASTEXITCODE)" }
+    }
     "OK" | Out-File $log -Append
     exit 0
 } catch {

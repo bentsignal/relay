@@ -11,6 +11,9 @@ Relay is MIT licensed. It includes or links the following free software.
 | [quinn](https://github.com/quinn-rs/quinn), [rustls](https://github.com/rustls/rustls), [ring](https://github.com/briansmith/ring) | MIT / Apache-2.0 / ISC-style | Encrypted LAN transport |
 | [cpal](https://github.com/RustAudio/cpal) | Apache-2.0 | Audio device I/O |
 | [mdns-sd](https://github.com/keepsimple1/mdns-sd) | Apache-2.0 / MIT | Device discovery |
+| [Windows-Camera VirtualCamera sample](https://github.com/microsoft/Windows-Camera/tree/master/Samples/VirtualCamera) (modified) | MIT | Basis of the Relay Camera media source (`camera/relay-camera.dll`) |
+| [WIL](https://github.com/microsoft/wil) 1.0.260126.7, [C++/WinRT](https://github.com/microsoft/cppwinrt) (headers, compiled in) | MIT | Relay Camera media source |
 
 All other Rust dependencies are MIT and/or Apache-2.0 licensed; see `Cargo.lock`.
-The usbip-win2 license text ships next to its files in `usbip/LICENSE-usbip-win2.txt`.
+The usbip-win2 license text ships next to its files in `usbip/LICENSE-usbip-win2.txt`;
+the Windows-Camera sample's license ships in `camera/LICENSE-Windows-Camera-sample.txt`.

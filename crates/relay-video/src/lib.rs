@@ -14,7 +14,8 @@ pub mod windows;
 
 /// Viewer windows for incoming video. Same API on every platform:
 /// `open(title) -> Result<Viewer>`, `Viewer::push(EncodedVideo) -> bool`
-/// (false once closed), `is_open()`, `take_keyframe_request()`.
+/// (false once closed), `is_open()`, `take_keyframe_request()`, `is_camera()`
+/// (this stream is what the Relay Camera shows).
 #[cfg(windows)]
 pub mod viewer {
     pub use crate::windows::viewer::{Viewer, open};
@@ -35,9 +36,71 @@ pub mod viewer {
         pub fn take_keyframe_request(&self) -> bool {
             false
         }
+        pub fn is_camera(&self) -> bool {
+            false
+        }
     }
     pub fn open(_title: &str) -> anyhow::Result<Viewer> {
         anyhow::bail!("video viewing isn't available on macOS yet")
+    }
+}
+
+/// The "Relay Camera" virtual webcam that shows incoming video to other apps.
+pub mod camera {
+    /// The OS can host the camera and its one-time install is done.
+    pub fn installed() -> bool {
+        #[cfg(windows)]
+        {
+            crate::windows::camera::supported() && crate::windows::camera::com_registered()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+
+    /// Apps can see the camera.
+    pub fn available() -> bool {
+        #[cfg(windows)]
+        {
+            crate::windows::camera::supported() && crate::windows::camera::is_registered()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+
+    /// The one-time (admin) install is needed for the camera packaged at
+    /// `packaged` (missing or out of date).
+    pub fn needs_install(packaged: &std::path::Path) -> bool {
+        #[cfg(windows)]
+        {
+            packaged.is_file()
+                && crate::windows::camera::supported()
+                && !crate::windows::camera::install_matches(packaged)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = packaged;
+            false
+        }
+    }
+
+    /// Creates the per-user camera device if it's installed but missing.
+    /// Returns whether the camera is available.
+    pub fn ensure_registered() -> anyhow::Result<bool> {
+        #[cfg(windows)]
+        {
+            if !crate::windows::camera::supported() {
+                return Ok(false);
+            }
+            crate::windows::camera::ensure_registered()
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(false)
+        }
     }
 }
 

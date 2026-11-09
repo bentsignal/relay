@@ -22,3 +22,6 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --locked
       - run: cargo test --workspace --locked
+      - name: Build the Relay Camera media source
+        if: runner.os == 'Windows'
+        run: pwsh scripts/windows/build-camera.ps1
