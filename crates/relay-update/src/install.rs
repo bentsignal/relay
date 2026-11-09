@@ -217,8 +217,16 @@ pub fn prune() {
     }
 }
 
+/// Test installs (RELAY_INSTALL_ROOT set) leave login items and shortcuts alone.
+fn sandboxed() -> bool {
+    std::env::var_os("RELAY_INSTALL_ROOT").is_some()
+}
+
 /// Starts the engine at login.
 pub fn set_autostart(on: bool) -> Result<()> {
+    if sandboxed() {
+        return Ok(());
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -265,6 +273,9 @@ pub fn set_autostart(on: bool) -> Result<()> {
 
 /// Windows: Start menu shortcut to the app.
 pub fn create_shortcut() -> Result<()> {
+    if sandboxed() {
+        return Ok(());
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
