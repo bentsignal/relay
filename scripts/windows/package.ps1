@@ -21,7 +21,9 @@ $zip = Join-Path $dist 'relay-windows-x64.zip'
 Remove-Item $zip -ErrorAction SilentlyContinue
 Push-Location $stage
 # bsdtar writes portable forward-slash paths.
-tar.exe -a -c -f $zip *
+$tar = Join-Path $env:SystemRoot 'System32/tar.exe'
+& $tar -a -c -f $zip *
+$code = $LASTEXITCODE
 Pop-Location
-if ($LASTEXITCODE -ne 0) { throw 'zip failed' }
+if ($code -ne 0) { throw 'zip failed' }
 Write-Host "wrote $zip"

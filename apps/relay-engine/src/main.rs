@@ -67,6 +67,11 @@ fn main() {
         }
         return;
     }
+    // Lets the updater's rollback be tested with a build that can't start.
+    if VERSION.contains("crashtest") {
+        tracing::error!("crash-test build: exiting");
+        std::process::exit(3);
+    }
     if relay_ipc::engine_running() {
         tracing::info!("an engine is already running");
         return;
