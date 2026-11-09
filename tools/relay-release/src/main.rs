@@ -2,6 +2,7 @@
 //!   Writes <out-dir>/<channel>.json and .sig for the zips in <asset-dir>.
 //!   The signing seed comes from the RELAY_UPDATE_KEY environment variable.
 //! relay-release pubkey   Prints the public key for RELAY_UPDATE_KEY.
+//! relay-release sign <file>   Writes <file>.sig (for test manifests).
 
 use anyhow::{Context, Result, bail};
 use relay_update::{Asset, Manifest, REPO, public_from_seed, sha256_file, sign};
@@ -13,6 +14,10 @@ fn main() -> Result<()> {
     let seed = std::env::var("RELAY_UPDATE_KEY").context("RELAY_UPDATE_KEY not set")?;
     match args.first().map(String::as_str) {
         Some("pubkey") => println!("{}", public_from_seed(&seed)?),
+        Some("sign") if args.len() == 2 => {
+            let data = std::fs::read(&args[1])?;
+            std::fs::write(format!("{}.sig", args[1]), sign(&seed, &data)?)?;
+        }
         Some("manifest") if args.len() == 7 => {
             let (channel, version, commit, tag) = (&args[1], &args[2], &args[3], &args[4]);
             let assets_dir = PathBuf::from(&args[5]);

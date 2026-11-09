@@ -76,7 +76,8 @@ fn checker(mut channel: Channel, rx: Receiver<Channel>, tx: Sender<UpdateMsg>) {
 
 fn check_once(channel: Channel, tx: &Sender<UpdateMsg>) -> anyhow::Result<UpdateState> {
     let m = relay_update::fetch_manifest(channel.as_str())?;
-    if m.version == crate::VERSION {
+    // Don't offer a build that already failed to start here; wait for the next one.
+    if m.version == crate::VERSION || install::load_state().rolled_back_from.as_deref() == Some(m.version.as_str()) {
         return Ok(UpdateState::UpToDate);
     }
     let asset = m.assets.get(relay_update::platform()).ok_or_else(|| anyhow::anyhow!("no build for this platform"))?;
